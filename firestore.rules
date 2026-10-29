@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// Bookshelf access rules.
+// - Gabriel and Ingrid can read and change everything.
+// - Anyone (friends, signed in or not) can browse the catalogue: books,
+//   authors, series and covers.
+// - Who read what, loans and notes live in `private`, which only the two of
+//   you can see. Firestore can't hide single fields, so private data is kept
+//   in its own collection rather than on the book itself.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isMember() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['gabriel.jacobi@gmail.com', 'ingrid.skare@gmail.com'];
+    }
+
+    match /books/{bookId} {
+      allow read: if true;
+      allow write: if isMember();
+    }
+
+    match /authors/{authorId} {
+      allow read: if true;
+      allow write: if isMember();
+    }
+
+    match /series/{seriesId} {
+      allow read: if true;
+      allow write: if isMember();
+    }
+
+    // Cover photos you took or uploaded, stored as compressed images.
+    match /covers/{coverId} {
+      allow read: if true;
+      // The image is a base64 string in `image`; keep it well under Firestore's 1 MiB limit.
+      allow create, update: if isMember()
+        && request.resource.data.image is string
+        && request.resource.data.image.size() < 900000;
+      allow delete: if isMember();
+    }
+
+    // Per-book private data: readBy, lentTo, notes. Keyed by book id.
+    match /private/{bookId} {
+      allow read, write: if isMember();
+    }
+
+    // Anything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
