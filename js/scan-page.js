@@ -1,4 +1,4 @@
-import { toIsbn13, lookupAll } from './lookup.js?v=9';
+import { toIsbn13, lookupAll } from './lookup.js?v=10';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -291,7 +291,7 @@ function render() {
         <div>
           <h3>${m ? esc(m.title) : 'Not found'}</h3>
           <div class="meta">${m ? esc((m.authors || []).join(', ') || 'Unknown author') + ' · ' + esc(m.publisher || '—') + ' · ' + esc(m.year || '—') + ' · ' + esc(m.language || '?') : 'No source knows this ISBN'} · ${q.isbn}</div>
-          <div class="sources">${sourceTag('google', 'Google', r.google)}${sourceTag('openlibrary', 'Open Library', r.openlibrary)}${sourceTag('libris', 'LIBRIS', r.libris)}</div>
+          <div class="sources">${sourceTag('google', 'Google', r.google)}${sourceTag('openlibrary', 'Open Library', r.openlibrary)}${sourceTag('libris', 'LIBRIS', r.libris)}${'brasil' in r ? sourceTag('brasil', 'BrasilAPI', r.brasil) : ''}</div>
           ${covers.length > 1 ? `<div class="alts">${covers.map((c, j) => `<img src="${esc(c.url)}" title="${esc(c.source)}" class="${j === (q.coverIdx || 0) ? 'sel' : ''}" data-cover="${j}" onerror="this.remove()">`).join('')}</div>` : ''}
           <div class="row" style="justify-content:space-between">
             <details><summary>Compare sources</summary><table>${rows}</table></details>

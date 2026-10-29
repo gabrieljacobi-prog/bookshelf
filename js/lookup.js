@@ -111,7 +111,14 @@ export async function googleBooks(isbn) {
     try { data = await getJson(base); }
     catch (e2) { throw new Error('with key: ' + e.message + ' | anonymous: ' + e2.message.slice(0, 20)); }
   }
-  const v = data.items?.[0]?.volumeInfo;
+  let v = data.items?.[0]?.volumeInfo;
+  if (!v) {
+    // isbn: searches miss books that a plain query finds, so try that too.
+    try {
+      const d2 = await withBackoff(() => getJson(`https://www.googleapis.com/books/v1/volumes?q=${isbn}&key=${firebaseConfig.apiKey}`));
+      v = (d2.items || []).map((i) => i.volumeInfo).find((x) => (x.industryIdentifiers || []).some((id) => id.identifier.replace(/-/g, '') === isbn));
+    } catch { /* keep null */ }
+  }
   if (!v) return null;
   let cover = v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || null;
   if (cover) cover = cover.replace('http://', 'https://').replace('&edge=curl', '');
@@ -163,11 +170,31 @@ export async function libris(isbn) {
     year: (pick(rec.date) || '').match(/\d{4}/)?.[0] || null,
     language: normLang(pick(rec.language)),
     pages: null,
-    cover: null,
+    // LIBRIS's website shows publisher covers from its image service, keyed by ISBN.
+    cover: `https://xinfo.libris.kb.se/xinfo/getxinfo?identifier=/PICTURE/bokrondellen/isbn/${isbn}/${isbn}.jpg/orginal`,
   };
 }
 
-const SOURCES = { google: googleBooks, openlibrary: openLibrary, libris };
+// BrasilAPI aggregates Brazilian sources (CBL, Mercado Editorial…) with covers.
+export async function brasilApi(isbn) {
+  let b;
+  try { b = await getJson(`https://brasilapi.com.br/api/isbn/v1/${isbn}`); }
+  catch (e) { if (/HTTP 404/.test(e.message)) return null; throw e; }
+  if (!b?.title) return null;
+  return {
+    source: 'BrasilAPI',
+    title: b.title,
+    subtitle: b.subtitle || null,
+    authors: b.authors || [],
+    publisher: b.publisher || null,
+    year: b.year ? String(b.year) : null,
+    language: 'pt',
+    pages: b.page_count || null,
+    cover: b.cover_url || null,
+  };
+}
+
+const SOURCES = { google: googleBooks, openlibrary: openLibrary, libris, brasil: brasilApi };
 
 // Runs every source, never throws. Returns { isbn, results: {key: rec|null|{error}}, merged }.
 async function run1(key, isbn) {
@@ -180,20 +207,52 @@ async function run1(key, isbn) {
   }
 }
 
-// Open Library and LIBRIS run together; Google only if neither found the book
-// (its ISBN search proved slow and inconsistent in testing).
-// Pass { all: true } to always ask Google too. Never throws.
+// A cover counts only if the image actually loads (Open Library and LIBRIS
+// hand out URLs that may 404). Browser-only.
+export function coverLoads(url, ms = 7000) {
+  if (!url || typeof Image === 'undefined') return Promise.resolve(false);
+  return new Promise((res) => {
+    const img = new Image();
+    const t = setTimeout(() => res(false), ms);
+    img.onload = () => { clearTimeout(t); res(img.naturalWidth > 10); };
+    img.onerror = () => { clearTimeout(t); res(false); };
+    img.src = url;
+  });
+}
+
+async function firstWorkingCover(recs) {
+  for (const r of recs) if (r && !r.error && r.cover && (await coverLoads(r.cover))) return r.cover;
+  return null;
+}
+
+// Open Library + LIBRIS (+ BrasilAPI for Brazilian ISBNs) run together.
+// Google is asked only when they miss the book or have no cover that loads;
+// its ISBN search proved slow and inconsistent. Never throws.
 export async function lookupAll(isbn, { all = false } = {}) {
-  const [openlibrary, librisRes] = await Promise.all([run1('openlibrary', isbn), run1('libris', isbn)]);
-  const found = [openlibrary, librisRes].some((r) => r && !r.error);
-  const google = all || !found ? await run1('google', isbn) : null;
+  const br = isbnRegion(isbn) === 'br';
+  const [openlibrary, librisRes, brasil] = await Promise.all([
+    run1('openlibrary', isbn), run1('libris', isbn), br ? run1('brasil', isbn) : Promise.resolve(null),
+  ]);
+  const firstRound = [brasil, openlibrary, librisRes];
+  const found = firstRound.some((r) => r && !r.error);
+  // Drop cover URLs that don't load, so the record only lists real covers.
+  for (const r of firstRound) if (r && !r.error && r.cover && !(await coverLoads(r.cover))) r.cover = null;
+  const hasCover = firstRound.some((r) => r && !r.error && r.cover);
+  let google = { skipped: true };
+  if (all || !found || !hasCover) {
+    google = await run1('google', isbn);
+    if (google && !google.error && google.cover && !(await coverLoads(google.cover))) google.cover = null;
+  }
   const results = { google, openlibrary, libris: librisRes };
-  if (!all && found) results.google = { skipped: true };
+  if (br) results.brasil = brasil;
   return { isbn, results, merged: merge(isbn, results) };
 }
 
 export function merge(isbn, results) {
-  const order = isbnRegion(isbn) === 'se' ? ['libris', 'openlibrary', 'google'] : ['openlibrary', 'libris', 'google'];
+  const region = isbnRegion(isbn);
+  const order = region === 'se' ? ['libris', 'openlibrary', 'google']
+    : region === 'br' ? ['brasil', 'openlibrary', 'google', 'libris']
+    : ['openlibrary', 'libris', 'google'];
   const ok = order.map((k) => results[k]).filter((r) => r && !r.error && !r.skipped);
   if (!ok.length) return null;
   const first = (f) => ok.map((r) => r[f]).find((v) => (Array.isArray(v) ? v.length : v)) ?? null;

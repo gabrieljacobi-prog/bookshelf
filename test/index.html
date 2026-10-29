@@ -28,6 +28,7 @@
   <p class="muted">Looks up every ISBN from your Bookshelf export in Google Books, Open Library and LIBRIS, and checks whether a usable cover comes back. It takes a few minutes; results are kept on this device, so you can reload and continue.</p>
   <div class="row">
     <button class="btn" id="run">Run test</button>
+    <button class="btn ghost" id="gaps">Re-check gaps</button>
     <button class="btn ghost" id="copy" disabled>Copy summary</button>
     <button class="btn ghost" id="dl" disabled>Download results</button>
     <button class="btn ghost" id="reset">Reset</button>
@@ -41,7 +42,7 @@
   <div id="misses"></div>
 </div>
 <script type="module">
-import { lookupAll, isbnRegion } from '../js/lookup.js?v=9';
+import { lookupAll, isbnRegion } from '../js/lookup.js?v=10';
 
 const $ = (id) => document.getElementById(id);
 const KEY = 'bookshelf.coverage.v1';
@@ -77,13 +78,12 @@ function coverLoads(url) {
 async function testOne(b) {
   const r = await lookupAll(b.isbn);
   const covers = r.merged?.covers || [];
-  const ok = [];
-  for (const c of covers) { if (await coverLoads(c.url)) { ok.push(c.source); break; } }
+  const ok = covers.slice(0, 1).map((c) => c.source); // lookupAll already dropped covers that don't load
   const flat = (k) => { const x = r.results[k]; return x?.skipped ? 'skipped' : !x ? 'miss' : x.error ? 'error' : 'hit'; };
   results[b.isbn] = {
     title: b.title,
     region: isbnRegion(b.isbn),
-    google: flat('google'), openlibrary: flat('openlibrary'), libris: flat('libris'),
+    google: flat('google'), openlibrary: flat('openlibrary'), libris: flat('libris'), brasil: r.results.brasil === undefined ? 'n/a' : flat('brasil'),
     found: !!r.merged, coverSources: ok,
     merged: r.merged,
   };
@@ -91,7 +91,13 @@ async function testOne(b) {
 
 async function run() {
   running = true; $('run').disabled = true;
-  const todo = books.filter((b) => !results[b.isbn] || [results[b.isbn].google, results[b.isbn].openlibrary, results[b.isbn].libris].includes('error'));
+  const gaps = window.__gaps; window.__gaps = false;
+  const todo = books.filter((b) => {
+    const x = results[b.isbn];
+    if (!x) return true;
+    if (gaps) return !x.found || !x.coverSources.length;
+    return [x.google, x.openlibrary, x.libris].includes('error');
+  });
   let i = 0;
   async function worker() {
     while (i < todo.length && running) {
@@ -123,6 +129,8 @@ function summary() {
     googleAsked: c((x) => x.google !== 'skipped'),
     openlibrary: c((x) => x.openlibrary === 'hit'),
     libris: c((x) => x.libris === 'hit'),
+    brasil: c((x) => x.brasil === 'hit'),
+    brasilAsked: c((x) => x.brasil && x.brasil !== 'n/a'),
     errors: c((x) => [x.google, x.openlibrary, x.libris].includes('error')),
   };
 }
@@ -134,7 +142,7 @@ function draw() {
   $('copy').disabled = $('dl').disabled = !s.n;
   $('stats').innerHTML = [
     ['Found anywhere', s.found], ['Usable cover', s.cover], ['Google (when needed)', s.google],
-    ['Open Library', s.openlibrary], ['LIBRIS', s.libris], ['Had errors', s.errors],
+    ['Open Library', s.openlibrary], ['LIBRIS', s.libris], ['BrasilAPI (BR only)', s.brasil], ['Had errors', s.errors],
   ].map(([l, v]) => `<div class="card stat"><div class="n">${pct(v, s.n)}</div><div class="small muted">${l} · ${v}</div></div>`).join('');
 
   const regions = {};
@@ -152,11 +160,12 @@ function draw() {
 }
 
 $('run').onclick = run;
+$('gaps').onclick = () => { window.__gaps = true; run(); };
 $('reset').onclick = () => { if (confirm('Forget all results?')) { results = {}; persist(); draw(); } };
 $('copy').onclick = async () => {
   const s = summary();
   const misses = Object.entries(results).filter(([, x]) => !x.found || !x.coverSources.length).map(([i, x]) => `${i} ${!x.found ? 'NOTFOUND' : 'NOCOVER'} ${x.title}`);
-  const text = `Coverage: ${s.n} books · found ${pct(s.found, s.n)} · cover ${pct(s.cover, s.n)} · G ${s.google}/${s.googleAsked} asked · OL ${pct(s.openlibrary, s.n)} · LIBRIS ${pct(s.libris, s.n)} · errors ${s.errors}\n` + misses.join('\n');
+  const text = `Coverage: ${s.n} books · found ${pct(s.found, s.n)} · cover ${pct(s.cover, s.n)} · G ${s.google}/${s.googleAsked} asked · OL ${pct(s.openlibrary, s.n)} · LIBRIS ${pct(s.libris, s.n)} · BrasilAPI ${s.brasil}/${s.brasilAsked} · errors ${s.errors}\n` + misses.join('\n');
   try { await navigator.clipboard.writeText(text); alert('Summary copied'); } catch { prompt('Copy:', text); }
 };
 $('dl').onclick = () => {
