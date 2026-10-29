@@ -328,12 +328,24 @@ $('report').onclick = async () => {
 $('retry').onclick = async () => {
   const failed = queue.filter((q) => !q.pending && Object.values(q.results || {}).some((r) => r?.error));
   if (!failed.length) { toast('Nothing to retry'); return; }
-  toast(`Retrying ${failed.length}…`);
-  for (const q of failed) {
-    Object.assign(q, await lookupAll(q.isbn), { coverIdx: 0 });
-    save(); render();
-  }
-  toast('Done');
+  const btn = $('retry');
+  btn.disabled = true;
+  let done = 0;
+  const show = () => { btn.textContent = `Retrying ${done}/${failed.length}…`; };
+  show();
+  let i = 0;
+  const worker = async () => {
+    while (i < failed.length) {
+      const q = failed[i++];
+      Object.assign(q, await lookupAll(q.isbn), { coverIdx: 0 });
+      done++; show(); save(); render();
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  btn.disabled = false;
+  btn.textContent = 'Retry errors';
+  const still = queue.filter((q) => q.results?.google?.error).length;
+  toast(still ? `Done. Google still failing on ${still} — see Compare sources` : 'Done');
 };
 $('clear').onclick = () => { if (confirm('Clear all scanned books?')) { queue = []; save(); render(); } };
 
