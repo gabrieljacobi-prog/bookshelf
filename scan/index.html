@@ -64,9 +64,12 @@
 
   <div class="controls row">
     <button class="btn ghost" id="stop" disabled>Stop</button>
+    <button class="btn" id="photo">Take photo</button>
     <button class="btn ghost" id="torch" hidden>Light</button>
     <select id="cams" hidden aria-label="Camera"></select>
   </div>
+  <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
+  <p class="muted small" style="margin:-4px 0 0">Live scanning picks up barcodes on its own; no button needed. If it struggles, use <b>Take photo</b>: it opens your phone’s camera, which focuses better.</p>
 
   <form class="manual row" id="manual">
     <input id="isbnIn" inputmode="numeric" autocomplete="off" placeholder="Or type an ISBN">
@@ -86,6 +89,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="../vendor/zxing-browser.min.js"></script>
-<script type="module" src="../js/scan-page.js"></script>
+<script type="module" src="../js/scan-page.js?v=2"></script>
 </body>
 </html>

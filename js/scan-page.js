@@ -107,7 +107,7 @@ async function startCamera(deviceId) {
 }
 
 async function stopCamera() {
-  if (nativeLoop) { cancelAnimationFrame(nativeLoop); nativeLoop = null; }
+  if (nativeLoop) { cancelAnimationFrame(nativeLoop); clearTimeout(nativeLoop); nativeLoop = null; }
   if (zxingControls) { try { zxingControls.stop(); } catch {} zxingControls = null; }
   if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
   video.srcObject = null;
@@ -149,14 +149,86 @@ async function startDetection() {
     };
     tick();
   } else {
-    const Z = window.ZXingBrowser;
-    const hints = new Map([[2 /* POSSIBLE_FORMATS */, [Z.BarcodeFormat.EAN_13]], [3 /* TRY_HARDER */, true]]);
-    const reader = new Z.BrowserMultiFormatOneDReader(hints, { delayBetweenScanAttempts: 120, delayBetweenScanSuccess: 300 });
-    status('Scanning (ZXing)…');
-    zxingControls = await reader.decodeFromVideoElement(video, (result) => {
-      if (result) onRawCode(result.getText());
-    });
+    // Our own frame loop: crop the centre of each frame (where the guide is),
+    // scale it down, and hand it to ZXing. More reliable in Firefox than the
+    // library's own video loop, and much less work per frame.
+    const reader = makeReader();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let frames = 0, misses = 0, lastErr = '', since = performance.now();
+    const tick = () => {
+      if (!stream) return;
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (vw && vh) {
+        frames++;
+        // Every 4th frame, look at the whole picture in case the barcode is off-centre.
+        const full = frames % 4 === 0;
+        const sw = full ? vw : vw * 0.8, sh = full ? vh : vh * 0.45;
+        const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+        const scale = Math.min(1, 1000 / sw);
+        canvas.width = Math.round(sw * scale);
+        canvas.height = Math.round(sh * scale);
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        try {
+          onRawCode(reader.decodeFromCanvas(canvas).getText());
+        } catch (e) {
+          misses++;
+          if (e && e.name !== 'NotFoundException' && !/NotFound|Checksum|Format/.test(e.name || '')) lastErr = e.message || String(e);
+        }
+        const dt = (performance.now() - since) / 1000;
+        if (dt > 1) {
+          status(`Scanning · ${vw}×${vh} · ${Math.round(frames / dt)} frames/s${lastErr ? ' · ' + lastErr : ''}`);
+          frames = 0; since = performance.now();
+        }
+      }
+      nativeLoop = setTimeout(() => requestAnimationFrame(tick), 80);
+    };
+    status('Scanning…');
+    tick();
   }
+}
+
+function makeReader() {
+  const Z = window.ZXingBrowser;
+  const hints = new Map([[2 /* POSSIBLE_FORMATS */, [Z.BarcodeFormat.EAN_13]], [3 /* TRY_HARDER */, true]]);
+  return new Z.BrowserMultiFormatOneDReader(hints);
+}
+
+// --- Photo fallback: decode a still taken with the phone's own camera ----------
+
+async function decodePhoto(file) {
+  status('Reading photo…');
+  const reader = makeReader();
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch { const img = new Image(); img.src = URL.createObjectURL(file); await img.decode(); bmp = img; }
+  const W = bmp.width, H = bmp.height;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const attempt = (sx, sy, sw, sh, rotate, maxW) => {
+    const scale = Math.min(1, maxW / sw);
+    const w = Math.round(sw * scale), h = Math.round(sh * scale);
+    canvas.width = rotate ? h : w;
+    canvas.height = rotate ? w : h;
+    ctx.save();
+    if (rotate) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
+    ctx.restore();
+    try { return reader.decodeFromCanvas(canvas).getText(); } catch { return null; }
+  };
+  // Whole photo at two sizes, then overlapping horizontal bands, each also rotated.
+  const tries = [[0, 0, W, H, 1600], [0, 0, W, H, 1000]];
+  for (let i = 0; i < 5; i++) tries.push([0, (H * i) / 6, W, H / 3, 1400]);
+  for (const rot of [false, true]) {
+    for (const [sx, sy, sw, sh, maxW] of tries) {
+      const text = attempt(sx, sy, sw, sh, rot, maxW);
+      const isbn = text && toIsbn13(text);
+      if (isbn) { status(''); addIsbn(isbn, 'photo'); return; }
+    }
+  }
+  status('');
+  beep(false);
+  toast('No barcode found — try closer, with the barcode sharp and level');
 }
 
 // --- Queue ---------------------------------------------------------------------
@@ -255,6 +327,12 @@ $('torch').onclick = async () => {
   if (!track) return;
   torchOn = !torchOn;
   try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch { toast('Light not available'); }
+};
+$('photo').onclick = () => $('photoIn').click();
+$('photoIn').onchange = (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (f) decodePhoto(f);
 };
 $('manual').onsubmit = (e) => {
   e.preventDefault();
