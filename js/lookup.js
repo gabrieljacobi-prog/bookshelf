@@ -62,7 +62,7 @@ async function getJson(url, ms = 9000) {
     if (!r.ok) {
       let detail = '';
       try { detail = (await r.json())?.error?.message || ''; } catch {}
-      throw new Error('HTTP ' + r.status + (detail ? ' ' + detail.slice(0, 80) : ''));
+      throw new Error('HTTP ' + r.status + (detail ? ' ' + detail.slice(0, 160) : ''));
     }
     return await r.json();
   } catch (e) {
@@ -98,7 +98,7 @@ export async function googleBooks(isbn) {
   } catch (e) {
     if (!/HTTP 403/.test(e.message)) throw e;
     try { data = await getJson(base); }
-    catch (e2) { throw new Error('key not enabled for Books API; anonymous: ' + e2.message); }
+    catch (e2) { throw new Error('with key: ' + e.message + ' | anonymous: ' + e2.message.slice(0, 20)); }
   }
   const v = data.items?.[0]?.volumeInfo;
   if (!v) return null;
