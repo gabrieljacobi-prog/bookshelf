@@ -34,12 +34,14 @@
   </div>
   <div class="bar"><div id="prog"></div></div>
   <div class="muted small" id="state"></div>
+  <div class="muted small" id="now" style="min-height:1.4em"></div>
+  <p class="muted small">Keep this tab in front and the screen on. Browsers pause pages in the background.</p>
   <div class="stats" id="stats"></div>
   <div id="byRegion"></div>
   <div id="misses"></div>
 </div>
 <script type="module">
-import { lookupAll, isbnRegion } from '../js/lookup.js?v=8';
+import { lookupAll, isbnRegion } from '../js/lookup.js?v=9';
 
 const $ = (id) => document.getElementById(id);
 const KEY = 'bookshelf.coverage.v1';
@@ -47,6 +49,17 @@ let results = {};
 try { results = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
 const books = await (await fetch('isbns.json')).json();
 let running = false;
+const current = new Set();
+let lastDone = Date.now();
+function heartbeat() {
+  const secs = Math.round((Date.now() - lastDone) / 1000);
+  $('now').textContent = running ? `Now checking: ${[...current].join(' · ')}${secs > 20 ? ` (${secs}s since last result)` : ''}` : '';
+}
+setInterval(heartbeat, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && running) document.title = 'Paused? Keep this tab open';
+  else document.title = 'Coverage test · Bookshelf';
+});
 
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(results)); } catch {} };
 
@@ -65,8 +78,8 @@ async function testOne(b) {
   const r = await lookupAll(b.isbn);
   const covers = r.merged?.covers || [];
   const ok = [];
-  for (const c of covers) if (await coverLoads(c.url)) ok.push(c.source);
-  const flat = (k) => { const x = r.results[k]; return !x ? 'miss' : x.error ? 'error' : 'hit'; };
+  for (const c of covers) { if (await coverLoads(c.url)) { ok.push(c.source); break; } }
+  const flat = (k) => { const x = r.results[k]; return x?.skipped ? 'skipped' : !x ? 'miss' : x.error ? 'error' : 'hit'; };
   results[b.isbn] = {
     title: b.title,
     region: isbnRegion(b.isbn),
@@ -83,7 +96,11 @@ async function run() {
   async function worker() {
     while (i < todo.length && running) {
       const b = todo[i++];
+      current.add(b.title);
+      heartbeat();
       try { await testOne(b); } catch (e) { console.warn(b.isbn, e); }
+      current.delete(b.title);
+      lastDone = Date.now();
       persist(); draw();
       await new Promise((r) => setTimeout(r, 250)); // be polite to the free APIs
     }
@@ -103,6 +120,7 @@ function summary() {
     found: c((x) => x.found),
     cover: c((x) => x.coverSources.length),
     google: c((x) => x.google === 'hit'),
+    googleAsked: c((x) => x.google !== 'skipped'),
     openlibrary: c((x) => x.openlibrary === 'hit'),
     libris: c((x) => x.libris === 'hit'),
     errors: c((x) => [x.google, x.openlibrary, x.libris].includes('error')),
@@ -115,7 +133,7 @@ function draw() {
   $('state').textContent = `${s.n} of ${books.length} checked${running ? '…' : ''}`;
   $('copy').disabled = $('dl').disabled = !s.n;
   $('stats').innerHTML = [
-    ['Found anywhere', s.found], ['Usable cover', s.cover], ['Google Books', s.google],
+    ['Found anywhere', s.found], ['Usable cover', s.cover], ['Google (when needed)', s.google],
     ['Open Library', s.openlibrary], ['LIBRIS', s.libris], ['Had errors', s.errors],
   ].map(([l, v]) => `<div class="card stat"><div class="n">${pct(v, s.n)}</div><div class="small muted">${l} · ${v}</div></div>`).join('');
 
@@ -138,7 +156,7 @@ $('reset').onclick = () => { if (confirm('Forget all results?')) { results = {};
 $('copy').onclick = async () => {
   const s = summary();
   const misses = Object.entries(results).filter(([, x]) => !x.found || !x.coverSources.length).map(([i, x]) => `${i} ${!x.found ? 'NOTFOUND' : 'NOCOVER'} ${x.title}`);
-  const text = `Coverage: ${s.n} books · found ${pct(s.found, s.n)} · cover ${pct(s.cover, s.n)} · G ${pct(s.google, s.n)} · OL ${pct(s.openlibrary, s.n)} · LIBRIS ${pct(s.libris, s.n)} · errors ${s.errors}\n` + misses.join('\n');
+  const text = `Coverage: ${s.n} books · found ${pct(s.found, s.n)} · cover ${pct(s.cover, s.n)} · G ${s.google}/${s.googleAsked} asked · OL ${pct(s.openlibrary, s.n)} · LIBRIS ${pct(s.libris, s.n)} · errors ${s.errors}\n` + misses.join('\n');
   try { await navigator.clipboard.writeText(text); alert('Summary copied'); } catch { prompt('Copy:', text); }
 };
 $('dl').onclick = () => {

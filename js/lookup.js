@@ -170,25 +170,31 @@ export async function libris(isbn) {
 const SOURCES = { google: googleBooks, openlibrary: openLibrary, libris };
 
 // Runs every source, never throws. Returns { isbn, results: {key: rec|null|{error}}, merged }.
-export async function lookupAll(isbn) {
-  const entries = await Promise.all(
-    Object.entries(SOURCES).map(async ([key, fn]) => {
-      const t0 = performance.now();
-      try {
-        const rec = await fn(isbn);
-        return [key, rec ? { ...rec, ms: Math.round(performance.now() - t0) } : null];
-      } catch (e) {
-        return [key, { error: e.message || String(e) }];
-      }
-    })
-  );
-  const results = Object.fromEntries(entries);
+async function run1(key, isbn) {
+  const t0 = performance.now();
+  try {
+    const rec = await SOURCES[key](isbn);
+    return rec ? { ...rec, ms: Math.round(performance.now() - t0) } : null;
+  } catch (e) {
+    return { error: e.message || String(e) };
+  }
+}
+
+// Open Library and LIBRIS run together; Google only if neither found the book
+// (its ISBN search proved slow and inconsistent in testing).
+// Pass { all: true } to always ask Google too. Never throws.
+export async function lookupAll(isbn, { all = false } = {}) {
+  const [openlibrary, librisRes] = await Promise.all([run1('openlibrary', isbn), run1('libris', isbn)]);
+  const found = [openlibrary, librisRes].some((r) => r && !r.error);
+  const google = all || !found ? await run1('google', isbn) : null;
+  const results = { google, openlibrary, libris: librisRes };
+  if (!all && found) results.google = { skipped: true };
   return { isbn, results, merged: merge(isbn, results) };
 }
 
 export function merge(isbn, results) {
-  const order = isbnRegion(isbn) === 'se' ? ['libris', 'google', 'openlibrary'] : ['google', 'openlibrary', 'libris'];
-  const ok = order.map((k) => results[k]).filter((r) => r && !r.error);
+  const order = isbnRegion(isbn) === 'se' ? ['libris', 'openlibrary', 'google'] : ['openlibrary', 'libris', 'google'];
+  const ok = order.map((k) => results[k]).filter((r) => r && !r.error && !r.skipped);
   if (!ok.length) return null;
   const first = (f) => ok.map((r) => r[f]).find((v) => (Array.isArray(v) ? v.length : v)) ?? null;
   return {

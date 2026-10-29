@@ -1,4 +1,4 @@
-import { toIsbn13, lookupAll } from './lookup.js?v=8';
+import { toIsbn13, lookupAll } from './lookup.js?v=9';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -261,6 +261,7 @@ function esc(s) {
 }
 
 function sourceTag(key, label, r) {
+  if (r?.skipped) return `<span class="tag">${label}: not needed</span>`;
   if (!r) return `<span class="tag miss">${label}: not found</span>`;
   if (r.error) return `<span class="tag err" title="${esc(r.error)}">${label}: error</span>`;
   return `<span class="tag ok">${label} ✓</span>`;
@@ -280,6 +281,7 @@ function render() {
     const rows = ['google', 'openlibrary', 'libris'].map((k) => {
       const x = r[k];
       const label = { google: 'Google', openlibrary: 'Open Library', libris: 'LIBRIS' }[k];
+      if (x?.skipped) return `<tr><th>${label}</th><td class="muted">not needed</td></tr>`;
       if (!x || x.error) return `<tr><th>${label}</th><td class="muted">${x?.error ? 'error: ' + esc(x.error) : 'not found'}</td></tr>`;
       return `<tr><th>${label}</th><td>${esc(x.title)}${x.subtitle ? ': ' + esc(x.subtitle) : ''}<br><span class="muted">${esc(x.authors.join(', '))} · ${esc(x.publisher || '—')} · ${esc(x.year || '—')} · ${esc(x.language || '—')}</span></td></tr>`;
     }).join('');
@@ -313,7 +315,7 @@ $('queue').addEventListener('click', (e) => {
 function report() {
   const lines = queue.filter((q) => !q.pending).map((q) => {
     const r = q.results || {};
-    const s = (x) => (!x ? '–' : x.error ? `E(${x.error})` : '✓');
+    const s = (x) => (x?.skipped ? '·' : !x ? '–' : x.error ? `E(${x.error})` : '✓');
     const coverOk = (q.merged?.covers || []).length ? 'cover' : 'NO COVER';
     return `${q.isbn} | G${s(r.google)} OL${s(r.openlibrary)} L${s(r.libris)} | ${coverOk} | ${q.merged?.title || 'NOT FOUND'}`;
   });
