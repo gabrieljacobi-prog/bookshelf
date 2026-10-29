@@ -74,6 +74,17 @@ async function getJson(url, ms = 9000) {
   }
 }
 
+// Google answers bursts with 503/429. Wait and try again a few times.
+async function withBackoff(fn, tries = 4) {
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i >= tries - 1 || !/HTTP (503|429|500)/.test(e.message)) throw e;
+      await new Promise((r) => setTimeout(r, 800 * 2 ** i + Math.random() * 400));
+    }
+  }
+}
+
 function jsonp(url, ms = 9000) {
   return new Promise((resolve, reject) => {
     const cb = '__libris' + Math.random().toString(36).slice(2);
@@ -94,7 +105,7 @@ export async function googleBooks(isbn) {
   const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&country=SE`;
   let data;
   try {
-    data = await getJson(`${base}&key=${firebaseConfig.apiKey}`);
+    data = await withBackoff(() => getJson(`${base}&key=${firebaseConfig.apiKey}`));
   } catch (e) {
     if (!/HTTP 403/.test(e.message)) throw e;
     try { data = await getJson(base); }
