@@ -50,11 +50,21 @@ function status(msg) { $('status').textContent = msg; }
 // --- Detection: accept a code only after two identical reads -------------------
 
 let lastRead = { code: null, at: 0 };
+let lastNonIsbn = 0;
 const recent = new Map(); // isbn -> timestamp, prevents re-adding while it's still in view
 
 function onRawCode(text) {
   const isbn = toIsbn13(text);
-  if (!isbn) return; // not a book barcode (e.g. the 5-digit price add-on)
+  if (!isbn) {
+    // A real barcode, but not an ISBN: usually a UPC price code or a comic's direct-market code.
+    const digits = String(text).replace(/\D/g, '');
+    if (digits.length >= 12 && Date.now() - lastNonIsbn > 4000) {
+      lastNonIsbn = Date.now();
+      beep(false);
+      toast('That’s a price code, not the ISBN. Look for another barcode, often inside the front cover');
+    }
+    return;
+  }
   const now = Date.now();
   if (lastRead.code !== isbn || now - lastRead.at > 1500) {
     lastRead = { code: isbn, at: now };
@@ -135,7 +145,7 @@ async function startDetection() {
     try { native = (await BarcodeDetector.getSupportedFormats()).includes('ean_13'); } catch {}
   }
   if (native) {
-    const det = new BarcodeDetector({ formats: ['ean_13'] });
+    const det = new BarcodeDetector({ formats: ['ean_13', 'upc_a'] });
     status('Scanning (built-in detector)…');
     let busy = false;
     const tick = async () => {
@@ -190,7 +200,7 @@ async function startDetection() {
 
 function makeReader() {
   const Z = window.ZXingBrowser;
-  const hints = new Map([[2 /* POSSIBLE_FORMATS */, [Z.BarcodeFormat.EAN_13]], [3 /* TRY_HARDER */, true]]);
+  const hints = new Map([[2 /* POSSIBLE_FORMATS */, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.UPC_A]], [3 /* TRY_HARDER */, true]]);
   return new Z.BrowserMultiFormatOneDReader(hints);
 }
 
