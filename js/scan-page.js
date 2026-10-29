@@ -1,4 +1,4 @@
-import { toIsbn13, lookupAll } from './lookup.js?v=7';
+import { toIsbn13, lookupAll } from './lookup.js?v=8';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -326,7 +326,8 @@ $('report').onclick = async () => {
   catch { prompt('Copy this report:', text); }
 };
 $('retry').onclick = async () => {
-  const failed = queue.filter((q) => !q.pending && Object.values(q.results || {}).some((r) => r?.error));
+  const failed = window.__retryAll ? queue.filter((q) => !q.pending) : queue.filter((q) => !q.pending && Object.values(q.results || {}).some((r) => r?.error));
+  window.__retryAll = false;
   if (!failed.length) { toast('Nothing to retry'); return; }
   const btn = $('retry');
   btn.disabled = true;
@@ -347,6 +348,7 @@ $('retry').onclick = async () => {
   const still = queue.filter((q) => q.results?.google?.error).length;
   toast(still ? `Done. Google still failing on ${still} — see Compare sources` : 'Done');
 };
+$('retry').addEventListener('contextmenu', (e) => { e.preventDefault(); window.__retryAll = true; $('retry').click(); });
 $('clear').onclick = () => { if (confirm('Clear all scanned books?')) { queue = []; save(); render(); } };
 
 // --- Wiring --------------------------------------------------------------------

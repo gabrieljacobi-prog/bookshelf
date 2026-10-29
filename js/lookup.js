@@ -102,7 +102,7 @@ function jsonp(url, ms = 9000) {
 // project's API key (Books API must be enabled for it). If the key isn't
 // allowed to call Books yet, fall back to an anonymous request.
 export async function googleBooks(isbn) {
-  const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&country=SE`;
+  const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
   let data;
   try {
     data = await withBackoff(() => getJson(`${base}&key=${firebaseConfig.apiKey}`));
