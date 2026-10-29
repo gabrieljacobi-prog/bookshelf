@@ -1,4 +1,4 @@
-import { toIsbn13, lookupAll } from './lookup.js';
+import { toIsbn13, lookupAll } from './lookup.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
@@ -303,7 +303,7 @@ $('queue').addEventListener('click', (e) => {
 function report() {
   const lines = queue.filter((q) => !q.pending).map((q) => {
     const r = q.results || {};
-    const s = (x) => (!x ? '–' : x.error ? 'E' : '✓');
+    const s = (x) => (!x ? '–' : x.error ? `E(${x.error})` : '✓');
     const coverOk = (q.merged?.covers || []).length ? 'cover' : 'NO COVER';
     return `${q.isbn} | G${s(r.google)} OL${s(r.openlibrary)} L${s(r.libris)} | ${coverOk} | ${q.merged?.title || 'NOT FOUND'}`;
   });
@@ -314,6 +314,16 @@ $('report').onclick = async () => {
   const text = report();
   try { await navigator.clipboard.writeText(text); toast('Report copied'); }
   catch { prompt('Copy this report:', text); }
+};
+$('retry').onclick = async () => {
+  const failed = queue.filter((q) => !q.pending && Object.values(q.results || {}).some((r) => r?.error));
+  if (!failed.length) { toast('Nothing to retry'); return; }
+  toast(`Retrying ${failed.length}…`);
+  for (const q of failed) {
+    Object.assign(q, await lookupAll(q.isbn), { coverIdx: 0 });
+    save(); render();
+  }
+  toast('Done');
 };
 $('clear').onclick = () => { if (confirm('Clear all scanned books?')) { queue = []; save(); render(); } };
 

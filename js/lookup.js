@@ -1,3 +1,5 @@
+import { firebaseConfig } from './firebase-config.js?v=3';
+
 // Book metadata lookup: Google Books → Open Library → LIBRIS.
 // Each source returns a normalised record or null. lookupAll() runs them in
 // parallel and merges the results, preferring LIBRIS for Swedish ISBNs.
@@ -57,8 +59,16 @@ async function getJson(url, ms = 9000) {
   const t = setTimeout(() => ctl.abort(), ms);
   try {
     const r = await fetch(url, { signal: ctl.signal });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      let detail = '';
+      try { detail = (await r.json())?.error?.message || ''; } catch {}
+      throw new Error('HTTP ' + r.status + (detail ? ' ' + detail.slice(0, 80) : ''));
+    }
     return await r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('timeout');
+    if (e instanceof TypeError) throw new Error('blocked (network/CORS)');
+    throw e;
   } finally {
     clearTimeout(t);
   }
@@ -77,8 +87,19 @@ function jsonp(url, ms = 9000) {
   });
 }
 
+// Google Books rejects most anonymous browser requests, so we send the
+// project's API key (Books API must be enabled for it). If the key isn't
+// allowed to call Books yet, fall back to an anonymous request.
 export async function googleBooks(isbn) {
-  const data = await getJson(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+  const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&country=SE`;
+  let data;
+  try {
+    data = await getJson(`${base}&key=${firebaseConfig.apiKey}`);
+  } catch (e) {
+    if (!/HTTP 403/.test(e.message)) throw e;
+    try { data = await getJson(base); }
+    catch (e2) { throw new Error('key not enabled for Books API; anonymous: ' + e2.message); }
+  }
   const v = data.items?.[0]?.volumeInfo;
   if (!v) return null;
   let cover = v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || null;
