@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage test · Bookshelf</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;600&display=swap">
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  header.top { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0 14px; }
+  header.top h1 { font-size: 26px; }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 10px 0; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 14px 0; }
+  .stat .n { font-family: var(--serif); font-size: 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; }
+  h2 { font-size: 20px; margin: 22px 0 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Coverage test</h1>
+    <a class="small" href="../scan/">← Scanner</a>
+  </header>
+  <p class="muted">Looks up every ISBN from your Bookshelf export in Google Books, Open Library and LIBRIS, and checks whether a usable cover comes back. It takes a few minutes; results are kept on this device, so you can reload and continue.</p>
+  <div class="row">
+    <button class="btn" id="run">Run test</button>
+    <button class="btn ghost" id="copy" disabled>Copy summary</button>
+    <button class="btn ghost" id="dl" disabled>Download results</button>
+    <button class="btn ghost" id="reset">Reset</button>
+  </div>
+  <div class="bar"><div id="prog"></div></div>
+  <div class="muted small" id="state"></div>
+  <div class="stats" id="stats"></div>
+  <div id="byRegion"></div>
+  <div id="misses"></div>
+</div>
+<script type="module">
+import { lookupAll, isbnRegion } from '../js/lookup.js';
+
+const $ = (id) => document.getElementById(id);
+const KEY = 'bookshelf.coverage.v1';
+let results = {};
+try { results = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
+const books = await (await fetch('isbns.json')).json();
+let running = false;
+
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(results)); } catch {} };
+
+// A cover counts only if it actually loads and isn't a 1px placeholder.
+function coverLoads(url) {
+  return new Promise((res) => {
+    const img = new Image();
+    const t = setTimeout(() => res(false), 8000);
+    img.onload = () => { clearTimeout(t); res(img.naturalWidth > 10); };
+    img.onerror = () => { clearTimeout(t); res(false); };
+    img.src = url;
+  });
+}
+
+async function testOne(b) {
+  const r = await lookupAll(b.isbn);
+  const covers = r.merged?.covers || [];
+  const ok = [];
+  for (const c of covers) if (await coverLoads(c.url)) ok.push(c.source);
+  const flat = (k) => { const x = r.results[k]; return !x ? 'miss' : x.error ? 'error' : 'hit'; };
+  results[b.isbn] = {
+    title: b.title,
+    region: isbnRegion(b.isbn),
+    google: flat('google'), openlibrary: flat('openlibrary'), libris: flat('libris'),
+    found: !!r.merged, coverSources: ok,
+    merged: r.merged,
+  };
+}
+
+async function run() {
+  running = true; $('run').disabled = true;
+  const todo = books.filter((b) => !results[b.isbn] || [results[b.isbn].google, results[b.isbn].openlibrary, results[b.isbn].libris].includes('error'));
+  let i = 0;
+  async function worker() {
+    while (i < todo.length && running) {
+      const b = todo[i++];
+      try { await testOne(b); } catch (e) { console.warn(b.isbn, e); }
+      persist(); draw();
+      await new Promise((r) => setTimeout(r, 250)); // be polite to the free APIs
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  running = false; $('run').disabled = false; draw();
+}
+
+function pct(n, d) { return d ? Math.round((100 * n) / d) + '%' : '–'; }
+
+function summary() {
+  const all = Object.values(results);
+  const n = all.length;
+  const c = (f) => all.filter(f).length;
+  return {
+    n,
+    found: c((x) => x.found),
+    cover: c((x) => x.coverSources.length),
+    google: c((x) => x.google === 'hit'),
+    openlibrary: c((x) => x.openlibrary === 'hit'),
+    libris: c((x) => x.libris === 'hit'),
+    errors: c((x) => [x.google, x.openlibrary, x.libris].includes('error')),
+  };
+}
+
+function draw() {
+  const s = summary();
+  $('prog').style.width = pct(s.n, books.length);
+  $('state').textContent = `${s.n} of ${books.length} checked${running ? '…' : ''}`;
+  $('copy').disabled = $('dl').disabled = !s.n;
+  $('stats').innerHTML = [
+    ['Found anywhere', s.found], ['Usable cover', s.cover], ['Google Books', s.google],
+    ['Open Library', s.openlibrary], ['LIBRIS', s.libris], ['Had errors', s.errors],
+  ].map(([l, v]) => `<div class="card stat"><div class="n">${pct(v, s.n)}</div><div class="small muted">${l} · ${v}</div></div>`).join('');
+
+  const regions = {};
+  for (const x of Object.values(results)) {
+    const g = (regions[x.region] ||= { n: 0, found: 0, cover: 0 });
+    g.n++; g.found += x.found; g.cover += x.coverSources.length > 0;
+  }
+  const names = { en: 'English-language', br: 'Brazil', pt: 'Portugal', se: 'Sweden', nl: 'Netherlands', jp: 'Japan', other: 'Other' };
+  $('byRegion').innerHTML = `<h2>By publisher country</h2><table><tr><th>ISBN group</th><th>Books</th><th>Found</th><th>Cover</th></tr>` +
+    Object.entries(regions).sort((a, b) => b[1].n - a[1].n).map(([k, g]) => `<tr><td>${names[k] || k}</td><td>${g.n}</td><td>${pct(g.found, g.n)}</td><td>${pct(g.cover, g.n)}</td></tr>`).join('') + `</table>`;
+
+  const missing = Object.entries(results).filter(([, x]) => !x.found || !x.coverSources.length);
+  $('misses').innerHTML = missing.length ? `<h2>Needs attention (${missing.length})</h2><table><tr><th>Title</th><th>Problem</th></tr>` +
+    missing.map(([isbn, x]) => `<tr><td>${x.title}<br><span class="muted small">${isbn}</span></td><td>${!x.found ? 'Not found' : 'No cover'}</td></tr>`).join('') + `</table>` : '';
+}
+
+$('run').onclick = run;
+$('reset').onclick = () => { if (confirm('Forget all results?')) { results = {}; persist(); draw(); } };
+$('copy').onclick = async () => {
+  const s = summary();
+  const misses = Object.entries(results).filter(([, x]) => !x.found || !x.coverSources.length).map(([i, x]) => `${i} ${!x.found ? 'NOTFOUND' : 'NOCOVER'} ${x.title}`);
+  const text = `Coverage: ${s.n} books · found ${pct(s.found, s.n)} · cover ${pct(s.cover, s.n)} · G ${pct(s.google, s.n)} · OL ${pct(s.openlibrary, s.n)} · LIBRIS ${pct(s.libris, s.n)} · errors ${s.errors}\n` + misses.join('\n');
+  try { await navigator.clipboard.writeText(text); alert('Summary copied'); } catch { prompt('Copy:', text); }
+};
+$('dl').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(results, null, 1)], { type: 'application/json' }));
+  a.download = 'coverage-results.json';
+  a.click();
+};
+draw();
+</script>
+</body>
+</html>

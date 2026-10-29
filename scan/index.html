@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1b16">
+<title>Scanner test · Bookshelf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;600&display=swap">
+<link rel="stylesheet" href="../css/base.css">
+<style>
+  header.top { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0 14px; }
+  header.top h1 { font-size: 26px; }
+  .viewer { position: relative; background: #000; border-radius: 16px; overflow: hidden; aspect-ratio: 4 / 3; }
+  .viewer video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .viewer .guide {
+    position: absolute; left: 12%; right: 12%; top: 34%; bottom: 34%;
+    border: 2px solid rgba(255,255,255,.85); border-radius: 10px; box-shadow: 0 0 0 999px rgba(0,0,0,.35);
+    transition: border-color .15s, background .15s;
+  }
+  .viewer .guide.hit { border-color: #6fd48a; background: rgba(111,212,138,.15); }
+  .viewer .idle { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; text-align: center; padding: 24px; }
+  .viewer .status { position: absolute; left: 10px; bottom: 10px; right: 10px; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; }
+  .controls { margin: 12px 0; }
+  .controls select { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 9px; max-width: 100%; }
+  .manual { margin: 12px 0 20px; }
+  .queue-head { display: flex; justify-content: space-between; align-items: center; margin: 18px 0 10px; }
+  .queue-head h2 { font-size: 20px; }
+  .item { display: grid; grid-template-columns: 78px 1fr; gap: 12px; margin-bottom: 10px; }
+  .item .cover { width: 78px; aspect-ratio: 2 / 3; border-radius: 4px; background: var(--line); object-fit: cover; }
+  .item .cover.none { display: grid; place-items: center; font-size: 11px; color: var(--muted); text-align: center; padding: 4px; }
+  .item h3 { font-size: 17px; line-height: 1.25; }
+  .item .meta { font-size: 13px; color: var(--muted); margin: 2px 0 6px; }
+  .item .sources { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .item .alts { display: flex; gap: 6px; margin-top: 6px; }
+  .item .alts img { width: 40px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 3px; border: 2px solid transparent; cursor: pointer; }
+  .item .alts img.sel { border-color: var(--accent); }
+  .item .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0; }
+  details { margin-top: 6px; font-size: 13px; }
+  details table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+  details td, details th { border-top: 1px solid var(--line); padding: 4px 6px 4px 0; vertical-align: top; text-align: left; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Scanner test</h1>
+    <a class="small" href="../test/">Coverage test →</a>
+  </header>
+
+  <div class="viewer">
+    <video id="video" playsinline muted></video>
+    <div class="guide" id="guide" hidden></div>
+    <div class="idle" id="idle">
+      <div>
+        <p>Point the camera at the barcode on the back cover. Keep it inside the frame, about 15–20 cm away.</p>
+        <button class="btn" id="start">Start camera</button>
+      </div>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="controls row">
+    <button class="btn ghost" id="stop" disabled>Stop</button>
+    <button class="btn ghost" id="torch" hidden>Light</button>
+    <select id="cams" hidden aria-label="Camera"></select>
+  </div>
+
+  <form class="manual row" id="manual">
+    <input id="isbnIn" inputmode="numeric" autocomplete="off" placeholder="Or type an ISBN">
+    <button class="btn ghost" type="submit">Look up</button>
+  </form>
+
+  <div class="queue-head">
+    <h2>Scanned <span class="muted" id="count"></span></h2>
+    <div class="row">
+      <button class="btn ghost small" id="report">Copy report</button>
+      <button class="btn ghost small" id="clear">Clear</button>
+    </div>
+  </div>
+  <p class="muted small" id="empty">Nothing scanned yet. Try your trickiest books: old editions, book-club copies, small presses, Japanese art books.</p>
+  <div id="queue"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="../vendor/zxing-browser.min.js"></script>
+<script type="module" src="../js/scan-page.js"></script>
+</body>
+</html>
