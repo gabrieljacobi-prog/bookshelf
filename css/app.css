@@ -273,3 +273,15 @@ svg { display: block; flex: none; }
 .fixp .refine { display: grid; grid-template-columns: minmax(0, 1fr) 96px; column-gap: 16px; margin-bottom: 14px; }
 .fixp .refine .wide { grid-column: 1 / -1; }
 .fixp .refine .fr input { font-size: 17px; height: 38px; }
+
+/* Cover in the edit form */
+.ecov { display: flex; gap: 18px; align-items: flex-end; padding: 14px 0 6px; }
+.ecov .cv { flex: none; display: flex; align-items: flex-end; min-height: 120px; }
+.ecov .cv .cover img { width: 100%; height: 100%; object-fit: contain; }
+.ecov .side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.ecov .acts { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ecov .acts .btn-line { height: 40px; cursor: pointer; text-decoration: none; }
+.ecov .acts .btn-line > span { padding: 0 14px; }
+.ecov .ok, #editCover .ok { min-height: 40px; padding: 0; background: none; border: 0; color: var(--accentText); text-align: left; }
+#editCover .hint { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+#editCover .status { margin: 10px 0 0; font-size: 14px; color: var(--muted); }

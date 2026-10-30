@@ -1,5 +1,5 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits } from './data.js?v=3';
+import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits } from './data.js?v=4';
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromFile } from './covers.js?v=1';
@@ -757,6 +757,7 @@ function renderEdit(id) {
     <div class="book-top"><a class="back tap" href="#/book/${esc(id)}">${I.back}Cancel</a></div>
     <header class="page-head"><h1 class="disp">Edit</h1><p>${esc(b.title)}</p></header>
     <form class="editf" id="editForm" novalidate>
+      <section class="block" id="editCover">${editCoverHtml(b)}</section>
       <section class="block">
         <h2 class="disp">The book</h2>
         ${field('Title', 'title', b.title, 'required')}
@@ -813,6 +814,114 @@ function renderEdit(id) {
     inputs[inputs.length - 1]?.focus();
   });
   $('#editForm').addEventListener('submit', (e) => { e.preventDefault(); saveEdit(id); });
+  wireEditCover(id);
+}
+
+// --- Cover in the edit form ---------------------------------------------------------------
+// A new cover (photo or another edition's) is staged and saved with the rest on
+// Save, so Cancel still discards everything. Choosing a cover marks the edition checked.
+
+const coverDraft = new Map(); // bookId → { pending, results, loading, pick, status, busy }
+
+function editCoverHtml(b) {
+  const st = coverDraft.get(b.id) || {};
+  const c = st.pending || b.cover;
+  const r = c?.w && c?.h ? c.w / c.h : 0.66;
+  let w = 110, h = Math.round(110 / r);
+  if (h > 170) { h = 170; w = Math.round(170 * r); }
+  const size = `width:${w}px;height:${h}px`;
+  const preview = st.pending
+    ? `<span class="cover" style="${size}"><img alt="New cover" src="${esc(st.pending.mode === 'copied' ? st.pending.thumb : st.pending.url)}" referrerpolicy="no-referrer"></span>`
+    : coverBox(b, 110, 170);
+  const eds = st.results || [];
+  return `
+    <h2 class="disp">The cover</h2>
+    <div class="ecov">
+      <div class="cv">${preview}</div>
+      <div class="side">
+        <div class="lbl">${st.pending ? 'New cover, saved with Save' : b.cover ? `From ${esc(b.cover.source || 'unknown')}` : 'No cover yet'}</div>
+        <div class="acts">
+          <label class="btn-line ch8"><span class="ch8i tap">Photo</span><input type="file" accept="image/*" data-ec="photo" hidden></label>
+          <button type="button" class="btn-line ch8" data-ec="search"${st.loading || st.busy ? ' disabled' : ''}><span class="ch8i tap">${st.results ? 'Search again' : 'Search editions'}</span></button>
+          <a class="btn-line ch8" href="${esc(imageSearchUrl(b))}" target="_blank" rel="noopener"><span class="ch8i tap">Google Images</span></a>
+        </div>
+        ${st.pending ? '<button type="button" class="ok tap" data-ec="keep">Keep the current cover</button>' : ''}
+      </div>
+    </div>
+    <p class="hint">Photo takes a picture or picks one from the phone. Search editions uses the publisher and year below, if filled in.</p>
+    ${st.status ? `<p class="status" role="status">${esc(st.status)}</p>` : ''}
+    ${eds.length ? `<div class="eds">${eds.map((e, i) => `
+      <button type="button" data-eced="${i}" aria-pressed="${st.pick === i}"${st.busy ? ' disabled' : ''}>
+        <span class="im"><img src="${esc(e.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></span>
+        <span class="m">${esc([e.publisher, e.year, LANGS[e.language] || e.language].filter(Boolean).join(' · ') || e.source)}</span>
+      </button>`).join('')}</div>` : ''}
+    ${st.pick != null && eds[st.pick] && st.pending ? `<div class="pickbar">
+      <button type="button" class="btn-line ch8" data-ec="details"><span class="ch8i tap">Also use its details</span></button>
+      <span class="hint" style="margin:0">Fills in its ISBN, publisher, year and language below.</span>
+    </div>` : ''}`;
+}
+
+function renderEditCover(id) {
+  const sec = $('#editCover');
+  const b = S.books.get(id);
+  if (!sec || !b) return;
+  sec.innerHTML = editCoverHtml(b);
+  observeCovers(sec);
+  wireEditCover(id);
+}
+function setCover(id, patch) {
+  coverDraft.set(id, { ...(coverDraft.get(id) || {}), ...patch });
+  renderEditCover(id);
+}
+
+function wireEditCover(id) {
+  const sec = $('#editCover');
+  if (!sec) return;
+  observeCovers(sec);
+  const b = S.books.get(id);
+  sec.querySelector('[data-ec="photo"]')?.addEventListener('change', async (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    setCover(id, { busy: true, status: 'Preparing the photo…' });
+    try { setCover(id, { busy: false, pending: await coverFromFile(file), pick: null, status: null }); }
+    catch (e) { setCover(id, { busy: false, status: 'Couldn\'t use that photo: ' + e.message }); }
+  });
+  sec.querySelector('[data-ec="keep"]')?.addEventListener('click', () => setCover(id, { pending: null, pick: null, status: null }));
+  sec.querySelector('[data-ec="search"]')?.addEventListener('click', async () => {
+    const pub = $('#f-publisher').value.trim(), yr = $('#f-year').value.trim();
+    const isbnTyped = $('#f-isbn').value.replace(/[^0-9Xx]/g, '');
+    const newIsbn = isbnTyped && isbnTyped !== String(b.isbn || '').replace(/[^0-9Xx]/g, '') && toIsbn13(isbnTyped) !== b.isbn ? isbnTyped : null; // a newly typed ISBN = that exact edition
+    const title = $('#f-title').value.trim() || b.title;
+    const author = editDraft.get(id)?.find((p) => p.name && (p.role === 'author' || p.role === 'writer'))?.name || b.authors?.[0];
+    const opts = newIsbn ? { isbn: newIsbn } : { publisher: pub || null, year: /^\d{4}$/.test(yr) ? Number(yr) : null };
+    setCover(id, { loading: true, pick: null, status: newIsbn ? 'Looking up that ISBN…' : 'Looking for other editions…' });
+    const { editions, errors, exact } = await findEditions({ ...b, title, authors: author ? [author] : [] }, opts);
+    const what = newIsbn ? '' : [pub, yr].filter(Boolean).join(', ');
+    setCover(id, {
+      loading: false, results: editions,
+      status: editions.length
+        ? `${editions.length} ${exact ? 'cover' : 'edition'}${editions.length === 1 ? '' : 's'}${what ? ` matching ${what}` : ''}. Tap one to use its cover.`
+        : `Nothing found${what ? ` matching ${what}` : ''}${errors.length ? ` (${errors.join('; ')})` : ''}. ${what ? 'Try clearing the year. ' : ''}Or try Google Images or a photo.`,
+    });
+  });
+  sec.querySelectorAll('[data-eced]').forEach((x) => x.addEventListener('click', async () => {
+    const i = Number(x.dataset.eced);
+    const e = coverDraft.get(id)?.results?.[i];
+    if (!e) return;
+    setCover(id, { busy: true, pick: i, status: 'Fetching that cover…' });
+    try { setCover(id, { busy: false, pending: await coverFromUrl(e.cover, e.source), status: null }); }
+    catch (err) { setCover(id, { busy: false, pick: null, status: 'Couldn\'t load that cover: ' + err.message }); }
+  }));
+  sec.querySelector('[data-ec="details"]')?.addEventListener('click', () => {
+    const st = coverDraft.get(id);
+    const e = st?.results?.[st.pick];
+    if (!e) return;
+    if (e.isbn) $('#f-isbn').value = e.isbn;
+    if (e.publisher) $('#f-publisher').value = e.publisher;
+    if (e.year) $('#f-year').value = e.year;
+    if (e.language && [...$('#f-language').options].some((o) => o.value === e.language)) $('#f-language').value = e.language;
+    toast('Details filled in. Check them, then Save.');
+  });
 }
 
 // Adding or removing a person re-renders the form; keep what was typed elsewhere.
@@ -870,9 +979,19 @@ async function saveEdit(id) {
     people, authors: main.map((p) => p.name),
     authorSort: main.length ? (S.authors.get(main[0].authorId)?.sortName || newAuthors.find((a) => a.id === main[0].authorId)?.sortName || sortName(main[0].name)) : '',
   };
+  // A new cover chosen above: saved in the same batch, and it marks the edition checked.
+  const pending = coverDraft.get(id)?.pending;
+  let newCover = null;
+  if (pending) {
+    fields.verified = true; fields.needsFix = false;
+    if (pending.mode === 'copied') newCover = pending;
+    else fields.cover = { url: pending.url, w: pending.w, h: pending.h, source: pending.source };
+  }
   status('Saving…');
   try {
-    await saveEdits(id, fields, newAuthors, newSeries);
+    await saveEdits(id, fields, newAuthors, newSeries, newCover);
+    if (newCover) fields.cover = { id, w: newCover.w, h: newCover.h, source: newCover.source };
+    coverDraft.delete(id);
     for (const a of newAuthors) S.authors.set(a.id, a);
     if (newSeries) S.series.set(newSeries.id, newSeries);
     Object.assign(b, fields);
@@ -908,7 +1027,7 @@ function route() {
   lastView = v;
   if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
   if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
-  if (v === 'book') { show('book'); editDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
+  if (v === 'book') { show('book'); editDraft.clear(); coverDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
   if (v === 'wall') { confirmDone = false; show('wall'); renderWall(); window.scrollTo(0, 0); return; }
   if (v === 'fix') { show('fix'); renderFixList(); window.scrollTo(0, 0); return; }
   // "#/?q=…" opens the library searching (used by the series row).

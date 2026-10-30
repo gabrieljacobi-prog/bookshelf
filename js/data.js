@@ -106,11 +106,18 @@ export async function saveCover(bookId, { thumb, large, w, h, source }, extra = 
   coverMem.delete(bookId); coverMem.delete(bookId + '-l');
 }
 
-// The edit form: the book plus any new author or series records, in one batch.
-export async function saveEdits(bookId, fields, newAuthors = [], newSeries = null) {
+// The edit form: the book plus any new author or series records, and a new
+// copied cover ({ thumb, large, w, h, source }) if one was chosen, in one batch.
+export async function saveEdits(bookId, fields, newAuthors = [], newSeries = null, cover = null) {
   const b = writeBatch(db);
+  if (cover) {
+    b.set(doc(db, 'covers', bookId), { image: cover.thumb, size: 'thumb', bookId });
+    b.set(doc(db, 'covers', bookId + '-l'), { image: cover.large, size: 'large', bookId });
+    fields = { ...fields, cover: { id: bookId, w: cover.w, h: cover.h, source: cover.source } };
+  }
   b.update(doc(db, 'books', bookId), fields);
   for (const a of newAuthors) { const { id, ...rest } = a; b.set(doc(db, 'authors', id), rest); }
   if (newSeries) b.set(doc(db, 'series', newSeries.id), { name: newSeries.name });
   await b.commit();
+  if (cover) { coverMem.delete(bookId); coverMem.delete(bookId + '-l'); }
 }
