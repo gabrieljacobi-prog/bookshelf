@@ -5,7 +5,7 @@ import { toIsbn13, lookupAll } from './lookup.js?v=11';
 import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=1';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
 import { cropImage } from './crop.js?v=2';
-import { findEditions, imageSearchUrl } from './editions.js?v=3';
+import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=4';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -981,7 +981,7 @@ async function saveNew(fields, newAuthors, newSeries, newCover, readBy, status) 
 
 const NEW = 'new';
 const bookOf = (id) => (id === NEW ? ADD.draft : S.books.get(id));
-const freshAdd = () => ({ step: 'start', isbn: '', rec: null, pick: 0, dupes: null, msg: null, busy: false, draft: null });
+const freshAdd = () => ({ step: 'start', isbn: '', rec: null, pick: 0, dupes: null, msg: null, busy: false, draft: null, search: null });
 let ADD = freshAdd();
 let stopScan = null;
 
@@ -1067,7 +1067,11 @@ function renderAdd() {
           <label class="lbl" for="addIsbn">Or type the ISBN</label>
           <div class="row"><input id="addIsbn" inputmode="numeric" autocomplete="off" placeholder="978…" value="${esc(A.isbn)}"><button type="submit" class="btn-ink tap ch8">Look up</button></div>
         </form>
-        <button class="ok tap" id="noIsbn">No ISBN? Fill it in by hand</button>
+        <div class="add-or">
+          <button class="btn-line ch8" id="toSearch"><span class="ch8i tap">Search by title or author</span></button>
+          <span class="hint">When there's no barcode or it won't scan.</span>
+        </div>
+        <button class="ok tap" id="noIsbn">Or fill it in by hand</button>
       </section>`;
     $('#scanGo')?.addEventListener('click', startAddScan);
     $('#scanStop')?.addEventListener('click', () => { endScan(); renderAdd(); });
@@ -1096,8 +1100,11 @@ function renderAdd() {
       lookupIsbn(isbn);
     });
     $('#noIsbn').addEventListener('click', () => toDetails(draftFrom(null, null), null));
+    $('#toSearch').addEventListener('click', () => { endScan(); openSearch(); });
     return;
   }
+
+  if (A.step === 'search') { renderAddSearch(el); return; }
 
   if (A.step === 'looking') {
     el.innerHTML = `
@@ -1122,12 +1129,14 @@ function renderAdd() {
       <header class="page-head"><h1 class="disp">Not found</h1><p>None of the sources know ISBN ${esc(A.isbn)}. You can still add it from what's printed in the copy, with a photo for the cover.</p></header>
       ${dup}
       <div class="add-acts">
-        <button class="btn-ink tap ch8" id="byHand">Fill it in by hand</button>
+        <button class="btn-ink tap ch8" id="toSearch2">Search by title or author</button>
+        <button class="btn-line ch8" id="byHand"><span class="ch8i tap">Fill it in by hand</span></button>
         <button class="btn-line ch8" id="addRestart2"><span class="ch8i tap">Scan another</span></button>
       </div>`;
     $('#addRestart').addEventListener('click', () => { resetAdd(); renderAdd(); });
     $('#addRestart2').addEventListener('click', () => { resetAdd(); renderAdd(); });
     $('#byHand').addEventListener('click', () => toDetails(draftFrom(null, A.isbn), null));
+    $('#toSearch2').addEventListener('click', () => openSearch());
     observeCovers(el);
     return;
   }
@@ -1139,7 +1148,7 @@ function renderAdd() {
   const d = draftFrom(r, A.isbn);
   const rows = [['Publisher', d.publisher], ['Year', d.year], ['Language', LANGS[d.language] || d.language], ['Pages', d.pages], ['ISBN', A.isbn]].filter(([, v]) => v);
   el.innerHTML = `
-    <div class="page-top"><button class="back tap" id="addRestart">${I.back}Start over</button></div>
+    <div class="page-top"><button class="back tap" id="addRestart">${I.back}${A.search ? 'Results' : 'Start over'}</button></div>
     ${dup}
     <section class="plinth addcov">
       ${cur ? `<img src="${esc(cur.url)}" alt="Cover found for ${esc(d.title)}" referrerpolicy="no-referrer">`
@@ -1160,7 +1169,10 @@ function renderAdd() {
       ${d.authors.length ? `<div class="by">${esc(byLine(d))}</div>` : ''}
     </section>
     <section class="block" style="padding-bottom:40px"><dl>${rows.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></section>`;
-  $('#addRestart').addEventListener('click', () => { resetAdd(); renderAdd(); });
+  $('#addRestart').addEventListener('click', () => {
+    if (A.search) { ADD = { ...freshAdd(), step: 'search', search: A.search }; renderAdd(); window.scrollTo(0, A.search.y || 0); }
+    else { resetAdd(); renderAdd(); }
+  });
   el.querySelectorAll('[data-cp]').forEach((x) => x.addEventListener('click', () => { ADD.pick = Number(x.dataset.cp); renderAdd(); }));
   $('#addYes').addEventListener('click', async () => {
     let pending = null;
@@ -1177,6 +1189,80 @@ function renderAdd() {
   // The form opens with the edition search already running.
   $('#addNo').addEventListener('click', () => toDetails(d, { autoSearch: true }));
   observeCovers(el);
+}
+
+// --- Search by title or author (no barcode, or one that won't scan) ---------------------
+
+function openSearch() {
+  const prev = ADD.search;
+  ADD = { ...freshAdd(), step: 'search', search: prev || { title: '', author: '', results: null } };
+  renderAdd();
+  window.scrollTo(0, 0);
+  $('#sq-title')?.focus();
+}
+
+const recFromResult = (e, author) => ({
+  title: e.title, subtitle: e.subtitle || null,
+  authors: e.authors?.length ? e.authors : author ? [author] : [],
+  publisher: e.publisher, year: e.year, language: e.language, pages: e.pages || null,
+  covers: e.cover ? [{ source: e.source, url: e.cover }] : [],
+});
+
+function renderAddSearch(el) {
+  const q = ADD.search;
+  const res = q.results || [];
+  el.innerHTML = `
+    <div class="page-top"><button class="back tap" id="addRestart">${I.back}Add book</button></div>
+    <header class="page-head"><h1 class="disp">Search</h1><p>Type the title, the author, or both, as printed in the book.</p></header>
+    <form class="editf sform" id="searchForm" novalidate>
+      <div class="fr"><label class="lbl" for="sq-title">Title</label><input id="sq-title" value="${esc(q.title)}" autocomplete="off" enterkeyhint="search"></div>
+      <div class="fr"><label class="lbl" for="sq-author">Author</label><input id="sq-author" value="${esc(q.author)}" list="dl-snames" autocomplete="off" enterkeyhint="search"></div>
+      <datalist id="dl-snames">${[...S.authors.values()].map((a) => `<option value="${esc(a.name)}">`).join('')}</datalist>
+      <div class="acts"><button type="submit" class="btn-ink tap ch8"${q.loading ? ' disabled' : ''}>${q.results ? 'Search again' : 'Search'}</button></div>
+    </form>
+    ${q.status ? `<p class="add-msg" role="status">${esc(q.status)}</p>` : ''}
+    ${res.length ? `<div class="eds sres">${res.map((e, i) => `
+      <button data-sr="${i}"${q.busy ? ' disabled' : ''}>
+        <span class="im"><img src="${esc(e.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></span>
+        <span class="t">${esc(e.title || '')}</span>
+        <span class="m">${esc([e.authors?.[0], e.publisher, e.year, LANGS[e.language] || e.language].filter(Boolean).join(' · ') || e.source)}</span>
+      </button>`).join('')}</div>` : ''}
+    ${q.results ? `<div class="add-alt" style="padding-top:28px">
+      <p class="hint" style="margin:0">${res.length ? 'Tap the one that looks like your copy. The cover and details can still be changed after.' : ''}</p>
+      <button class="ok tap" id="sByHand">${res.length ? 'None of these? Fill it in by hand' : 'Fill it in by hand'}</button>
+    </div>` : ''}`;
+  $('#addRestart').addEventListener('click', () => { ADD = freshAdd(); ADD.search = null; renderAdd(); });
+  $('#searchForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const title = $('#sq-title').value.trim(), author = $('#sq-author').value.trim();
+    Object.assign(q, { title, author });
+    if (!title && !author) { q.status = 'Type a title or an author first.'; renderAdd(); return; }
+    document.activeElement?.blur(); // closes the keyboard so the results show
+    Object.assign(q, { loading: true, status: 'Searching…', results: q.results });
+    renderAdd();
+    const { editions, errors } = await searchBooks({ title, author });
+    if (ADD.search !== q) return;
+    Object.assign(q, {
+      loading: false, results: editions,
+      status: editions.length ? `${editions.length} found${title ? ' with a cover' : ''}.`
+        : `Nothing found${errors.length ? ` (${errors.join('; ')})` : ''}. ${title && author ? 'Try just the title, or check the spelling. ' : ''}You can still fill it in by hand.`,
+    });
+    renderAdd();
+  });
+  el.querySelectorAll('[data-sr]').forEach((x) => x.addEventListener('click', () => {
+    const e = q.results[Number(x.dataset.sr)];
+    if (!e) return;
+    q.y = window.scrollY;
+    if (e.isbn) { lookupIsbn(e.isbn, e); return; }
+    const rec = recFromResult(e, q.author);
+    ADD = { ...freshAdd(), step: 'found', search: q, isbn: '', rec, dupes: dupesFor(null, rec) };
+    renderAdd();
+    window.scrollTo(0, 0);
+  }));
+  $('#sByHand')?.addEventListener('click', () => {
+    const d = draftFrom({ title: q.title, authors: q.author ? [q.author] : [] }, null);
+    toDetails(d, null);
+  });
 }
 
 function toDetails(draft, cover) {
@@ -1205,12 +1291,18 @@ async function startAddScan() {
   if (ADD.step !== 'scanning' || viewOf(location.hash) !== 'add') endScan(); // left while the camera was opening
 }
 
-async function lookupIsbn(isbn) {
-  ADD = { ...freshAdd(), step: 'looking', isbn };
+async function lookupIsbn(isbn, picked = null) {
+  ADD = { ...freshAdd(), step: 'looking', isbn, search: picked ? ADD.search : null };
   renderAdd();
   let merged = null;
   try { ({ merged } = await lookupAll(isbn)); } catch { merged = null; }
   if (ADD.step !== 'looking' || ADD.isbn !== isbn) return; // started over meanwhile
+  if (picked) {
+    // From the search: its cover comes first, and it fills in what the ISBN lookup lacks.
+    const base = recFromResult(picked);
+    merged = merged ? { ...base, ...Object.fromEntries(Object.entries(merged).filter(([, v]) => (Array.isArray(v) ? v.length : v))) } : base;
+    merged.covers = [base.covers[0], ...(merged.covers || []).filter((c) => c.url !== picked.cover)].filter(Boolean);
+  }
   ADD.rec = merged;
   ADD.step = merged?.title ? 'found' : 'notfound';
   ADD.dupes = dupesFor(isbn, merged);

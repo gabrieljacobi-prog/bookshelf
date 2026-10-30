@@ -321,3 +321,11 @@ button.back { background: none; border: 0; color: var(--ink); }
 .crop { touch-action: none; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
 .crop-stage { overflow: hidden; }
 .crop-hint, .crop-acts { position: relative; z-index: 2; flex: none; background-color: var(--bg); background-image: var(--grainImg); background-size: 256px; background-blend-mode: soft-light; }
+.add-or { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; padding-top: 20px; border-top: 1px solid var(--rule); }
+.add-or .btn-line { height: 48px; }
+.add-or .btn-line > span { padding: 0 18px; }
+.add-or .hint, .add-alt .hint { font-size: 14px; color: var(--muted); }
+.sform { padding: 0 20px; }
+.sform .acts { display: flex; justify-content: flex-end; padding-top: 18px; }
+.sres { margin: 22px 20px 0; }
+.sres .t { font-size: 13px; line-height: 1.22; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

@@ -31,7 +31,7 @@ async function googleJson(url) {
 const year = (s) => String(s || '').match(/\d{4}/)?.[0] || null;
 
 async function openLibrary(title, author, { publisher, year: wantYear } = {}) {
-  const q = `https://openlibrary.org/search.json?title=${enc(title)}${author ? `&author=${enc(author)}` : ''}&limit=3&fields=key`;
+  const q = `https://openlibrary.org/search.json?title=${enc(title)}${author ? `&author=${enc(author)}` : ''}&limit=3&fields=key,author_name`;
   const works = (await getJson(q)).docs || [];
   const out = [];
   // With a publisher or year to match, read far more editions and keep the matching ones.
@@ -53,6 +53,9 @@ async function openLibrary(title, author, { publisher, year: wantYear } = {}) {
         thumb: `https://covers.openlibrary.org/b/id/${id}-M.jpg`,
         cover: `https://covers.openlibrary.org/b/id/${id}-L.jpg`,
         title: e.title || null,
+        subtitle: e.subtitle || null,
+        authors: w.author_name || [],
+        pages: e.number_of_pages || null,
         publisher: e.publishers?.[0] || null,
         year: year(e.publish_date),
         isbn: e.isbn_13?.[0] || toIsbn13(e.isbn_10?.[0] || '') || null,
@@ -64,7 +67,7 @@ async function openLibrary(title, author, { publisher, year: wantYear } = {}) {
 }
 
 async function googleBooks(title, author, { publisher } = {}) {
-  const q = `intitle:"${title}"${author ? ` inauthor:"${author}"` : ''}${publisher ? ` inpublisher:"${publisher}"` : ''}`;
+  const q = [title && `intitle:"${title}"`, author && `inauthor:"${author}"`, publisher && `inpublisher:"${publisher}"`].filter(Boolean).join(' ');
   const data = await googleJson(`https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=30`);
   return (data.items || []).map((i) => i.volumeInfo).filter((v) => v.imageLinks?.thumbnail).map((v) => {
     const img = v.imageLinks.thumbnail.replace('http://', 'https://').replace('&edge=curl', '');
@@ -74,6 +77,9 @@ async function googleBooks(title, author, { publisher } = {}) {
       thumb: img,
       cover: img,
       title: v.title || null,
+      subtitle: v.subtitle || null,
+      authors: v.authors || [],
+      pages: v.pageCount || null,
       publisher: v.publisher || null,
       year: year(v.publishedDate),
       isbn: ids.find((x) => x.type === 'ISBN_13')?.identifier || toIsbn13(ids.find((x) => x.type === 'ISBN_10')?.identifier || '') || null,
@@ -127,4 +133,38 @@ export async function findEditions(book, opts = {}) {
 export function imageSearchUrl(book) {
   const q = [book.title, book.authors?.[0], 'book cover'].filter(Boolean).join(' ');
   return `https://www.google.com/search?tbm=isch&q=${enc(q)}`;
+}
+
+// Add book without a readable barcode: search by title, author or both.
+// With a title: that book's editions (as findEditions). Author only: one result
+// per book by them (Open Library works, first edition year), plus Google's volumes.
+async function openLibraryByAuthor(author) {
+  const d = await getJson(`https://openlibrary.org/search.json?author=${enc(author)}&limit=30&fields=key,title,author_name,cover_i,first_publish_year`);
+  return (d.docs || []).filter((w) => w.cover_i > 0).map((w) => ({
+    source: 'Open Library',
+    thumb: `https://covers.openlibrary.org/b/id/${w.cover_i}-M.jpg`,
+    cover: `https://covers.openlibrary.org/b/id/${w.cover_i}-L.jpg`,
+    title: w.title || null, subtitle: null, authors: w.author_name || [], pages: null,
+    publisher: null, year: w.first_publish_year ? String(w.first_publish_year) : null, isbn: null, language: null,
+  }));
+}
+
+export async function searchBooks({ title, author }) {
+  title = String(title || '').trim();
+  author = String(author || '').trim();
+  if (title) return findEditions({ title, authors: author ? [author] : [] });
+  if (!author) return { editions: [], errors: [] };
+  const errors = [];
+  const [ol, gb] = await Promise.all([
+    openLibraryByAuthor(author).catch((e) => { errors.push('Open Library: ' + e.message); return []; }),
+    googleBooks('', author).catch((e) => { errors.push('Google Books: ' + e.message); return []; }),
+  ]);
+  const seen = new Set();
+  const all = [...ol, ...gb].filter((e) => {
+    const k = norm(e.title);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return { editions: all.slice(0, 48), errors };
 }
