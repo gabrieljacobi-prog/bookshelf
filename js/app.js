@@ -2,7 +2,8 @@
 import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits } from './data.js?v=4';
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
-import { coverFromUrl, coverFromFile } from './covers.js?v=1';
+import { coverFromUrl, coverFromImage } from './covers.js?v=2';
+import { cropImage } from './crop.js?v=1';
 import { findEditions, imageSearchUrl } from './editions.js?v=3';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
@@ -621,7 +622,7 @@ function fixPanelHtml(b) {
   const eds = st.results || [];
   return `<div class="fixp ch12"><div class="ch12i">
     <h3>${!b.cover && !b.needsFix ? 'Find a cover' : 'Find the right edition'}</h3>
-    <p class="hint">Search other editions, look on Google Images (save the picture, then use Photo), or photograph your copy. For books with many editions, add what's printed in your copy.</p>
+    <p class="hint">Search other editions, look on Google Images (save the picture, then use Photo), or photograph your copy and drag the corners onto the cover's. For books with many editions, add what's printed in your copy.</p>
     <div class="refine">
       <div class="fr"><label class="lbl" for="fx-pub">Publisher</label><input id="fx-pub" value="${esc(st.pub || '')}" placeholder="e.g. Penguin" autocomplete="off"></div>
       <div class="fr"><label class="lbl" for="fx-year">Year</label><input id="fx-year" value="${esc(st.year || '')}" inputmode="numeric" maxlength="4" autocomplete="off"></div>
@@ -667,10 +668,15 @@ function wireFixPanel(el, id) {
     if (act === 'photo') {
       x.addEventListener('change', async () => {
         const file = x.files?.[0];
+        x.value = '';
         if (!file) return;
+        let img;
+        try { img = await cropImage(file); }
+        catch (e) { setFix(id, { status: 'Couldn\'t open that image: ' + e.message }); return; }
+        if (!img) return;
         setFix(id, { busy: true, status: 'Saving your photo…' });
         try {
-          const c = await coverFromFile(file);
+          const c = coverFromImage(img, 'Photo');
           await saveCover(id, c, { verified: true, needsFix: false });
           finishFix(id, { cover: { id, w: c.w, h: c.h, source: c.source } }, 'Cover saved.');
         } catch (e) { setFix(id, { busy: false, status: 'Couldn\'t save the photo: ' + e.message }); }
@@ -844,11 +850,12 @@ function editCoverHtml(b) {
           <label class="btn-line ch8"><span class="ch8i tap">Photo</span><input type="file" accept="image/*" data-ec="photo" hidden></label>
           <button type="button" class="btn-line ch8" data-ec="search"${st.loading || st.busy ? ' disabled' : ''}><span class="ch8i tap">${st.results ? 'Search again' : 'Search editions'}</span></button>
           <a class="btn-line ch8" href="${esc(imageSearchUrl(b))}" target="_blank" rel="noopener"><span class="ch8i tap">Google Images</span></a>
+          ${c ? `<button type="button" class="btn-line ch8" data-ec="crop"${st.busy ? ' disabled' : ''}><span class="ch8i tap">Crop</span></button>` : ''}
         </div>
         ${st.pending ? '<button type="button" class="ok tap" data-ec="keep">Keep the current cover</button>' : ''}
       </div>
     </div>
-    <p class="hint">Photo takes a picture or picks one from the phone. Search editions uses the publisher and year below, if filled in.</p>
+    <p class="hint">Photo takes a picture or picks a saved image; you then drag its corners onto the cover's. Crop straightens the cover shown. Search editions uses the publisher and year below, if filled in.</p>
     ${st.status ? `<p class="status" role="status">${esc(st.status)}</p>` : ''}
     ${eds.length ? `<div class="eds">${eds.map((e, i) => `
       <button type="button" data-eced="${i}" aria-pressed="${st.pick === i}"${st.busy ? ' disabled' : ''}>
@@ -881,10 +888,28 @@ function wireEditCover(id) {
   const b = S.books.get(id);
   sec.querySelector('[data-ec="photo"]')?.addEventListener('change', async (ev) => {
     const file = ev.target.files?.[0];
+    ev.target.value = '';
     if (!file) return;
-    setCover(id, { busy: true, status: 'Preparing the photo…' });
-    try { setCover(id, { busy: false, pending: await coverFromFile(file), pick: null, status: null }); }
-    catch (e) { setCover(id, { busy: false, status: 'Couldn\'t use that photo: ' + e.message }); }
+    try {
+      const img = await cropImage(file);
+      if (img) setCover(id, { pending: coverFromImage(img, 'Photo'), pick: null, status: null });
+    } catch (e) { setCover(id, { status: 'Couldn\'t use that image: ' + e.message }); }
+  });
+  // Crop the cover shown (a saved one, or the one just picked), e.g. a book shot at an angle.
+  sec.querySelector('[data-ec="crop"]')?.addEventListener('click', async () => {
+    const st = coverDraft.get(id) || {};
+    const p = st.pending;
+    setCover(id, { busy: true, status: 'Opening the cover…' });
+    try {
+      const srcUrl = p ? (p.mode === 'copied' ? p.large : p.url)
+        : b.cover.id ? await coverImage(id, 'large') || await coverImage(id, 'thumb') : b.cover.url;
+      if (!srcUrl) throw new Error('no image');
+      setCover(id, { busy: false, status: null });
+      const img = await cropImage(srcUrl);
+      if (img) setCover(id, { pending: coverFromImage(img, (p || b.cover).source || 'Photo'), pick: null });
+    } catch (e) {
+      setCover(id, { busy: false, status: /cors|load/.test(e.message) ? 'This cover\'s source doesn\'t allow editing it here. Save it from Google Images and use Photo instead.' : 'Couldn\'t open the cover: ' + e.message });
+    }
   });
   sec.querySelector('[data-ec="keep"]')?.addEventListener('click', () => setCover(id, { pending: null, pick: null, status: null }));
   sec.querySelector('[data-ec="search"]')?.addEventListener('click', async () => {

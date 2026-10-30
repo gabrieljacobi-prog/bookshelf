@@ -25,7 +25,10 @@ export function encode(img, { edge, budget }) {
   g.fillStyle = '#fff';
   g.fillRect(0, 0, w, h);
   g.drawImage(img, 0, 0, w, h);
-  for (const q of [0.85, 0.78, 0.7, 0.6, 0.5, 0.4]) {
+  // Images already smaller than this size (often the only cover there is) are
+  // kept at near-full quality: they fit the budget easily, so no need to lose more.
+  const qs = scale === 1 ? [0.95, 0.9, 0.85, 0.78, 0.7, 0.6, 0.5, 0.4] : [0.85, 0.78, 0.7, 0.6, 0.5, 0.4];
+  for (const q of qs) {
     const url = c.toDataURL('image/jpeg', q);
     if (url.length < budget) return url;
   }
@@ -46,6 +49,11 @@ export async function coverFromUrl(url, source) {
     const img = await loadImage(url, false);
     return { mode: 'link', url, w: img.naturalWidth, h: img.naturalHeight, source };
   }
+}
+
+// From an image or canvas already in hand (e.g. the result of the crop step).
+export function coverFromImage(img, source) {
+  return { mode: 'copied', ...both(img, source) };
 }
 
 // From a photo or file picked on the phone (EXIF rotation is applied by the browser).
