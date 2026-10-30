@@ -251,3 +251,21 @@ svg { display: block; flex: none; }
 .eds [aria-pressed="true"] img { outline: 2px solid var(--accent); outline-offset: 3px; }
 .pickbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); }
 .pickbar .btn-line > span { padding: 0 14px; }
+
+/* --- Edit form ------------------------------------------------------------------------ */
+
+.editf .block { padding-top: 8px; }
+.editf .block + .block { padding-top: 28px; }
+.fr { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 4px; }
+.fr input, .fr select, .pr input, .pr select { min-width: 0; height: 40px; padding: 0; background: none; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); font: 18px var(--text); outline: none; }
+.fr input:focus, .fr select:focus, .pr input:focus, .pr select:focus { border-bottom-color: var(--ink); }
+.fr select, .pr select { appearance: none; -webkit-appearance: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 2px center; padding-right: 22px; }
+.fr select option, .pr select option { background: var(--surface); color: var(--ink); }
+.fr.check { flex-direction: row; align-items: center; gap: 12px; min-height: 52px; }
+.fr.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.fr.check label { font-size: 17px; }
+.ppl { border-top: 1px solid var(--rule); }
+.pr { display: grid; grid-template-columns: 128px minmax(0, 1fr) 44px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.pr select { font-family: var(--label); font-size: 15px; letter-spacing: .05em; text-transform: lowercase; color: var(--muted); }
+.edit-acts { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 24px 20px 40px; }
+.edit-acts .cancel { display: flex; align-items: center; height: 44px; padding: 0 16px; color: var(--muted); text-decoration: none; }

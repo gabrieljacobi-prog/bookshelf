@@ -1,5 +1,7 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover } from './data.js?v=2';
+import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits } from './data.js?v=3';
+import { slug, sortName, fixName } from './import-clean.js?v=1';
+import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromFile } from './covers.js?v=1';
 import { findEditions, imageSearchUrl } from './editions.js?v=1';
 
@@ -397,7 +399,7 @@ function renderBook(id) {
   }).join('');
 
   el.innerHTML = `
-    <div class="book-top"><a class="back tap" href="#/" id="back">${I.back}Library</a></div>
+    <div class="book-top"><a class="back tap" href="#/" id="back">${I.back}Library</a>${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
     <section class="plinth">
       ${coverHtml}
       <div class="line" aria-hidden="true"></div>
@@ -715,6 +717,162 @@ function wireFixPanel(el, id) {
   el.querySelectorAll('[data-ed]').forEach((x) => x.addEventListener('click', () => setFix(id, { pick: Number(x.dataset.ed) })));
 }
 
+// --- Edit a book -------------------------------------------------------------------------------
+// Everything about the edition and the people. New names get an author record
+// (nationality and gender come later from Wikidata); new series get a series record.
+
+const EDIT_ROLES = ['author', 'writer', 'artist', 'illustrator', 'translator', 'editor', 'photographer'];
+const EDIT_LANGS = [['en', 'English'], ['pt', 'Portuguese'], ['sv', 'Swedish'], ['nl', 'Dutch'], ['ja', 'Japanese'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian']];
+const editDraft = new Map(); // bookId → people rows while editing
+
+function renderEdit(id) {
+  const el = $('#book');
+  const b = S.books.get(id);
+  if (!b || !isMember()) {
+    el.innerHTML = `<div class="book-top"><a class="back tap" href="#/book/${esc(id)}">${I.back}Book</a></div><p class="empty">${!b ? (S.loaded ? 'This book isn\'t in the library.' : 'Opening…') : 'Sign in from the library menu to edit books.'}</p>`;
+    return;
+  }
+  if (!editDraft.has(id)) editDraft.set(id, (b.people || []).map((p) => ({ ...p })));
+  const people = editDraft.get(id);
+  const opt = (v, label, cur) => `<option value="${esc(v)}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${esc(label)}</option>`;
+  const fmt = b.format === 'ebook' ? 'ebook' : b.binding || 'physical';
+  const langKnown = !b.language || EDIT_LANGS.some(([k]) => k === b.language);
+  const publishers = [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))].sort();
+  const seriesNames = [...S.series.values()].map((x) => x.name).sort();
+  const names = [...S.authors.values()].map((x) => x.name).sort();
+  const field = (label, name, value, extra = '') => `
+    <div class="fr"><label class="lbl" for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value ?? '')}" autocomplete="off" ${extra}></div>`;
+
+  el.innerHTML = `
+    <div class="book-top"><a class="back tap" href="#/book/${esc(id)}">${I.back}Cancel</a></div>
+    <header class="page-head"><h1 class="disp">Edit</h1><p>${esc(b.title)}</p></header>
+    <form class="editf" id="editForm" novalidate>
+      <section class="block">
+        <h2 class="disp">The book</h2>
+        ${field('Title', 'title', b.title, 'required')}
+        ${field('Subtitle', 'subtitle', b.subtitle)}
+        <div class="fr"><label class="lbl" for="f-category">Category</label><select id="f-category" name="category">${CATS.map((c) => opt(c, c, b.category)).join('')}</select></div>
+        ${field('Series', 'seriesName', b.seriesName, 'list="dl-series"')}
+        ${field('Volume', 'volume', b.volume, 'inputmode="decimal" style="max-width:120px"')}
+      </section>
+      <section class="block">
+        <h2 class="disp">The edition</h2>
+        ${field('Publisher', 'publisher', b.publisher, 'list="dl-pub"')}
+        ${field('Year', 'year', b.year, 'inputmode="numeric" maxlength="4" style="max-width:120px"')}
+        <div class="fr"><label class="lbl" for="f-language">Language</label><select id="f-language" name="language">${opt('', '—', b.language || '')}${EDIT_LANGS.map(([k, l]) => opt(k, l, b.language)).join('')}${langKnown ? '' : opt(b.language, b.language, b.language)}</select></div>
+        <div class="fr"><label class="lbl" for="f-format">Format</label><select id="f-format" name="format">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover'], ['physical', 'Other physical'], ['ebook', 'Ebook']].map(([k, l]) => opt(k, l, fmt)).join('')}</select></div>
+        ${field('Pages', 'pages', b.pages, 'inputmode="numeric" style="max-width:120px"')}
+        ${field('ISBN', 'isbn', b.isbn, 'inputmode="numeric"')}
+        ${field('Edition note', 'editionNote', b.editionNote, 'placeholder="Book club edition, Zephyr Books…"')}
+        <div class="fr check"><input type="checkbox" id="f-signed" name="signed"${b.signed ? ' checked' : ''}><label for="f-signed">Signed copy</label></div>
+      </section>
+      <section class="block">
+        <h2 class="disp">The people</h2>
+        <div class="ppl">${people.map((p, i) => `
+          <div class="pr">
+            <select aria-label="Role" data-pi="${i}" data-pk="role">${EDIT_ROLES.map((r) => opt(r, ROLES[r], p.role)).join('')}</select>
+            <input aria-label="Name" data-pi="${i}" data-pk="name" value="${esc(p.name)}" list="dl-names" autocomplete="off" placeholder="Name">
+            <button type="button" class="icon-btn" data-pdel="${i}" aria-label="Remove ${esc(p.name || 'person')}">${I.x}</button>
+          </div>`).join('')}
+        </div>
+        <button type="button" class="btn-line ch8" id="addPerson" style="height:44px;margin-top:14px"><span class="ch8i tap" style="padding:0 16px">Add a person</span></button>
+      </section>
+      <p class="status" id="editStatus" role="status" style="padding:0 20px;color:var(--accentText)"></p>
+      <div class="edit-acts">
+        <a class="cancel tap" href="#/book/${esc(id)}">Cancel</a>
+        <button type="submit" class="btn-ink tap ch8" style="padding:0 30px">Save</button>
+      </div>
+      <datalist id="dl-pub">${publishers.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <datalist id="dl-series">${seriesNames.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <datalist id="dl-names">${names.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+    </form>`;
+
+  el.querySelectorAll('[data-pi]').forEach((x) => x.addEventListener(x.tagName === 'SELECT' ? 'change' : 'input', () => {
+    people[Number(x.dataset.pi)][x.dataset.pk] = x.value;
+  }));
+  el.querySelectorAll('[data-pdel]').forEach((x) => x.addEventListener('click', () => {
+    keepFields();
+    people.splice(Number(x.dataset.pdel), 1);
+    renderEditKeep(id);
+  }));
+  $('#addPerson').addEventListener('click', () => {
+    keepFields();
+    people.push({ role: people.length ? 'translator' : 'author', name: '' });
+    renderEditKeep(id);
+    const inputs = el.querySelectorAll('[data-pk="name"]');
+    inputs[inputs.length - 1]?.focus();
+  });
+  $('#editForm').addEventListener('submit', (e) => { e.preventDefault(); saveEdit(id); });
+}
+
+// Adding or removing a person re-renders the form; keep what was typed elsewhere.
+let keptFields = null;
+function keepFields() { keptFields = Object.fromEntries(new FormData($('#editForm')).entries()); keptFields.signed = $('#f-signed').checked; }
+function renderEditKeep(id) {
+  renderEdit(id);
+  if (!keptFields) return;
+  for (const [k, v] of Object.entries(keptFields)) {
+    const f = $(`#f-${k}`);
+    if (!f) continue;
+    if (f.type === 'checkbox') f.checked = v === true; else f.value = v;
+  }
+  keptFields = null;
+}
+
+async function saveEdit(id) {
+  const b = S.books.get(id);
+  const fd = Object.fromEntries(new FormData($('#editForm')).entries());
+  const status = (s) => { $('#editStatus').textContent = s; };
+  const title = fd.title.trim();
+  if (!title) { status('A title is needed.'); $('#f-title').focus(); return; }
+  const isbnRaw = fd.isbn.replace(/[^0-9Xx]/g, '');
+  const isbn = isbnRaw ? toIsbn13(isbnRaw) : null;
+  if (isbnRaw && !isbn) { status('That ISBN doesn\'t look right (check the digits).'); $('#f-isbn').focus(); return; }
+  const year = fd.year.trim() ? Number(fd.year) : null;
+  if (fd.year.trim() && !(year > 1400 && year <= new Date().getFullYear() + 1)) { status('Year should be four digits.'); $('#f-year').focus(); return; }
+
+  // People: names cleaned up, each linked to an author record.
+  const people = editDraft.get(id).map((p) => ({ role: p.role, name: fixName(p.name || '') })).filter((p) => p.name);
+  const newAuthors = [];
+  for (const p of people) {
+    const existing = [...S.authors.values()].find((a) => norm(a.name) === norm(p.name));
+    if (existing) { p.authorId = existing.id; p.name = existing.name; continue; }
+    p.authorId = slug(p.name);
+    if (!S.authors.has(p.authorId)) newAuthors.push({ id: p.authorId, name: p.name, sortName: sortName(p.name), nationality: null, gender: null, checked: false, source: null });
+  }
+  const main = people.filter((p) => p.role === 'author' || p.role === 'writer');
+
+  // Series
+  const seriesName = fd.seriesName.trim() || null;
+  let seriesId = null, newSeries = null;
+  if (seriesName) {
+    const existing = [...S.series.values()].find((x) => norm(x.name) === norm(seriesName));
+    seriesId = existing ? existing.id : slug(seriesName);
+    if (!existing) newSeries = { id: seriesId, name: seriesName };
+  }
+
+  const fields = {
+    title, subtitle: fd.subtitle.trim() || null, category: fd.category,
+    seriesId, seriesName: existingSeriesName(seriesId) || seriesName, volume: seriesName ? (fd.volume.trim() || null) : null,
+    publisher: fd.publisher.trim() || null, year, language: fd.language || null,
+    format: fd.format === 'ebook' ? 'ebook' : 'physical', binding: ['paperback', 'hardcover'].includes(fd.format) ? fd.format : null,
+    pages: Number(fd.pages) || null, isbn, editionNote: fd.editionNote.trim() || null, signed: $('#f-signed').checked,
+    people, authors: main.map((p) => p.name),
+    authorSort: main.length ? (S.authors.get(main[0].authorId)?.sortName || newAuthors.find((a) => a.id === main[0].authorId)?.sortName || sortName(main[0].name)) : '',
+  };
+  status('Saving…');
+  try {
+    await saveEdits(id, fields, newAuthors, newSeries);
+    for (const a of newAuthors) S.authors.set(a.id, a);
+    if (newSeries) S.series.set(newSeries.id, newSeries);
+    Object.assign(b, fields);
+    editDraft.delete(id);
+    location.hash = `#/book/${id}`;
+    toast('Saved.');
+  } catch (e) { status('Couldn\'t save: ' + e.message); }
+}
+const existingSeriesName = (sid) => (sid ? S.series.get(sid)?.name : null);
+
 // --- Routing --------------------------------------------------------------------------------
 
 const VIEWS = ['library', 'book', 'wall', 'fix'];
@@ -723,14 +881,15 @@ function show(v) {
   $('#nav').hidden = v === 'wall';
   if (v !== 'wall') $('#wallbar').hidden = true;
 }
-const viewOf = (h) => (/^#\/book\//.test(h) ? 'book' : h.startsWith('#/wall') ? 'wall' : h.startsWith('#/fix') ? 'fix' : 'library');
+const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/wall') ? 'wall' : h.startsWith('#/fix') ? 'fix' : 'library');
 
 let libScroll = 0;
 function route() {
   const h = location.hash;
   const v = viewOf(h);
   if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
-  if (v === 'book') { show('book'); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
+  if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
+  if (v === 'book') { show('book'); editDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
   if (v === 'wall') { confirmDone = false; show('wall'); renderWall(); window.scrollTo(0, 0); return; }
   if (v === 'fix') { show('fix'); renderFixList(); window.scrollTo(0, 0); return; }
   // "#/?q=…" opens the library searching (used by the series row).
@@ -778,7 +937,8 @@ function start() {
 function rerender() {
   const v = viewOf(location.hash);
   const y = window.scrollY;
-  if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
+  if (v === 'edit') { if (!$('#editForm')) renderEdit(decodeURIComponent(location.hash.slice(7, -5))); }
+  else if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
   else if (v === 'wall') renderWall();
   else if (v === 'fix') renderFixList();
   else renderLibrary();
