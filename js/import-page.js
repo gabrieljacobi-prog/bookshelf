@@ -296,14 +296,16 @@ $('retry').onclick = async () => {
 let tidy = [];
 $('tidyLoad').onclick = async () => {
   $('tidyLoad').disabled = true;
-  const fixes = await (await fetch('title-fixes.json?v=2')).json();
+  const fixes = await (await fetch('title-fixes.json?v=3')).json();
   tidy = [];
   for (const f of fixes) {
     const snap = await getDoc(doc(db, 'books', f.id));
     if (!snap.exists()) continue;
     const b = snap.data();
-    if (b.title === f.title) continue; // already tidy
-    const note = f.note && !(b.editionNote || '').includes(f.note) ? [b.editionNote, f.note].filter(Boolean).join(', ') : (b.editionNote || null);
+    if (b.title === f.title && (!f.removeNote || !(b.editionNote || '').includes(f.removeNote))) continue; // already tidy
+    let base = b.editionNote || null;
+    if (f.removeNote && base) base = base.split(', ').filter((x) => x !== f.removeNote).join(', ') || null;
+    const note = f.note && !(base || '').includes(f.note) ? [base, f.note].filter(Boolean).join(', ') : base;
     tidy.push({ id: f.id, from: b.title, title: f.title, editionNote: note, addedNote: f.note && note !== (b.editionNote || null) ? f.note : null });
   }
   $('tidyTable').innerHTML = tidy.length
