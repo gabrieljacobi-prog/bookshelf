@@ -8,7 +8,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, getDocs, getDocsFromCache, getDoc, getDocFromCache, setDoc,
+  collection, doc, getDocs, getDocsFromCache, getDoc, getDocFromCache, setDoc, updateDoc, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
 
@@ -81,4 +81,27 @@ export async function coverImage(bookId, size = 'thumb') {
 
 export function savePrivate(bookId, fields) {
   return setDoc(doc(db, 'private', bookId), fields, { merge: true });
+}
+
+export function updateBook(bookId, fields) {
+  return updateDoc(doc(db, 'books', bookId), fields);
+}
+
+// Many books at once ([[id, fields], …]), in batches under Firestore's 500-write limit.
+export async function updateBooks(updates) {
+  for (let i = 0; i < updates.length; i += 450) {
+    const b = writeBatch(db);
+    for (const [id, fields] of updates.slice(i, i + 450)) b.update(doc(db, 'books', id), fields);
+    await b.commit();
+  }
+}
+
+// A new cover copied into Firestore: thumb + large, and the book's cover field.
+export async function saveCover(bookId, { thumb, large, w, h, source }, extra = {}) {
+  const b = writeBatch(db);
+  b.set(doc(db, 'covers', bookId), { image: thumb, size: 'thumb', bookId });
+  b.set(doc(db, 'covers', bookId + '-l'), { image: large, size: 'large', bookId });
+  b.update(doc(db, 'books', bookId), { cover: { id: bookId, w, h, source }, ...extra });
+  await b.commit();
+  coverMem.delete(bookId); coverMem.delete(bookId + '-l');
 }

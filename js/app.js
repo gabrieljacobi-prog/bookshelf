@@ -1,5 +1,7 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate } from './data.js?v=1';
+import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover } from './data.js?v=2';
+import { coverFromUrl, coverFromFile } from './covers.js?v=1';
+import { findEditions, imageSearchUrl } from './editions.js?v=1';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -140,15 +142,16 @@ function coverBox(b, W, H, cls = '') {
 function renderLibrary() {
   const el = $('#library');
   const n = S.books.size;
-  const unverified = [...S.books.values()].filter((b) => !b.verified).length;
+  const unverified = [...S.books.values()].filter((b) => !b.verified && b.cover && !b.needsFix).length;
+  const fixN = [...S.books.values()].filter((b) => b.needsFix || !b.cover).length;
   el.innerHTML = `
     <header class="hero">
       <div><div class="count disp">${S.loaded ? n : '&nbsp;'}</div><div class="lbl" style="margin-top:8px">Books</div></div>
       <h1 class="disp">Library</h1>
     </header>
-    ${isMember() && unverified && !S.reviewHidden ? `
+    ${isMember() && (unverified || fixN) && !S.reviewHidden ? `
     <div class="review">
-      <button id="wall"><span class="dot"></span><span class="what">${unverified} book${unverified === 1 ? '' : 's'} to check</span><span class="tap go">Cover wall</span></button>
+      <button id="reviewGo"><span class="dot"></span><span class="what">${unverified ? `${unverified} book${unverified === 1 ? '' : 's'} to check` : `${fixN} book${fixN === 1 ? '' : 's'} to fix`}</span><span class="tap go">${unverified ? 'Cover wall' : 'To fix'}</span></button>
       <button class="x icon-btn" id="hideReview" aria-label="Hide until next import">${I.x}</button>
     </div>` : ''}
     <div class="sticky grain" id="sticky">
@@ -156,7 +159,7 @@ function renderLibrary() {
       <div class="toolbar" id="toolbar"></div>
     </div>
     <div class="list" id="list"></div>`;
-  $('#wall')?.addEventListener('click', () => soon('The cover wall'));
+  $('#reviewGo')?.addEventListener('click', () => { location.hash = unverified ? '#/wall' : '#/fix'; });
   $('#hideReview')?.addEventListener('click', () => { S.reviewHidden = true; store.set('reviewHidden', '1'); renderLibrary(); });
   renderToolbar();
   renderList();
@@ -398,8 +401,9 @@ function renderBook(id) {
     <section class="plinth">
       ${coverHtml}
       <div class="line" aria-hidden="true"></div>
-      <div class="check lbl">${b.verified ? `${I.check}Edition checked` : '<span class="dot"></span>Edition not checked yet'}</div>
+      <div class="check lbl">${b.verified ? `${I.check}Edition checked` : b.needsFix ? '<span class="dot"></span>Marked as the wrong edition' : '<span class="dot"></span>Edition not checked yet'}</div>
     </section>
+    ${fixPanelHtml(b)}
     <section class="intro">
       ${b.category ? `<div class="lbl">${esc(b.category)}</div>` : ''}
       <h1 class="disp${b.title.length > 22 ? ' long' : ''}">${esc(b.title)}</h1>
@@ -424,6 +428,8 @@ function renderBook(id) {
   }
   const cu = el.querySelector('.cover[data-url]');
   if (cu) loadCover(cu, 'thumb');
+
+  wireFixPanel(el, id);
 
   // Read status
   el.querySelectorAll('[data-read]').forEach((btn) => btn.addEventListener('click', async () => {
@@ -462,25 +468,276 @@ function renderBook(id) {
   });
 }
 
+// --- Cover wall ---------------------------------------------------------------------------
+// One category at a time. Tap the covers that don't match your copy (saved at
+// once as needsFix); Done marks the rest checked. Books without a cover can't
+// be judged by eye, so they go straight to the fix list.
+
+const wallFlags = new Set(); // flagged on the wall this visit, kept visible until Done
+let wallCat = null;
+let confirmDone = false;
+
+const toFix = () => [...S.books.values()].filter((b) => b.needsFix || !b.cover);
+function wallBooks(cat) {
+  return [...S.books.values()]
+    .filter((b) => !b.verified && b.cover && b.category === cat && (!b.needsFix || wallFlags.has(b.id)))
+    .sort(compare('Author'));
+}
+
+function renderWall() {
+  const el = $('#wall');
+  if (!isMember()) {
+    el.innerHTML = `<div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div><p class="empty">Sign in from the library menu to check covers.</p>`;
+    $('#wallbar').hidden = true;
+    return;
+  }
+  const counts = Object.fromEntries(CATS.map((c) => [c, wallBooks(c).length]));
+  if (!wallCat || (!counts[wallCat] && !wallFlags.size)) wallCat = CATS.find((c) => counts[c]) || CATS[0];
+  const books = wallBooks(wallCat);
+  const fixN = toFix().length;
+  const W = Math.floor((Math.min(document.documentElement.clientWidth, 600) - 40 - 12 * 3) / 4);
+  const H = Math.round(W * 1.585);
+  el.innerHTML = `
+    <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
+    <header class="page-head">
+      <h1 class="disp">Cover wall</h1>
+      <p>Tap every cover that doesn't match your copy. Done marks the rest as checked.</p>
+    </header>
+    <div class="tabs" role="tablist">${CATS.map((c) => `<button role="tab" class="tap" data-wcat="${c}" aria-selected="${c === wallCat}">${c}<span class="c">${counts[c]}</span></button>`).join('')}</div>
+    ${fixN ? `<a class="tofix" href="#/fix"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span><span class="what">${fixN} book${fixN === 1 ? '' : 's'} to fix</span>${I.right}</a>` : ''}
+    ${books.length ? `<div class="wall-grid" style="--cols:4;--gap:12px;--H:${H}px;--phA:7px;--phT:10px;--phPad:6px 6px 7px">${books.map((b) => `
+      <button data-flag="${esc(b.id)}" aria-pressed="${!!b.needsFix}" aria-label="${esc(b.title)}: ${b.needsFix ? 'marked wrong' : 'looks right'}">
+        <span class="slot"><span class="wrap">${coverBox(b, W, H)}<span class="flag" aria-hidden="true">${I.x}</span></span></span>
+        <span class="t">${esc(b.title)}</span>
+      </button>`).join('')}</div>`
+      : `<p class="empty">${CATS.some((c) => counts[c]) ? `Nothing left to check in ${wallCat}.` : 'Every cover has been checked.'}</p>`}
+    <div style="height:40px"></div>`;
+  observeCovers(el);
+  renderWallBar(books);
+}
+
+function renderWallBar(books = wallBooks(wallCat)) {
+  const bar = $('#wallbar');
+  const flagged = books.filter((b) => b.needsFix).length;
+  const ok = books.length - flagged;
+  bar.hidden = !books.length;
+  bar.innerHTML = `
+    <span class="n">${flagged ? `${flagged} marked wrong` : 'None marked wrong'}</span>
+    <button class="btn-ink tap ch8" id="wallDone">${confirmDone ? 'Tap again to confirm' : `Done · ${ok} checked`}</button>`;
+}
+
+async function wallDone() {
+  if (!confirmDone) {
+    confirmDone = true;
+    renderWallBar();
+    clearTimeout(wallDone.t);
+    wallDone.t = setTimeout(() => { confirmDone = false; renderWallBar(); }, 3500);
+    return;
+  }
+  confirmDone = false;
+  const books = wallBooks(wallCat);
+  const ok = books.filter((b) => !b.needsFix);
+  const flagged = books.length - ok.length;
+  $('#wallDone').disabled = true;
+  try {
+    await updateBooks(ok.map((b) => [b.id, { verified: true }]));
+    for (const b of ok) b.verified = true;
+    for (const b of books) wallFlags.delete(b.id);
+    toast(`${ok.length} ${wallCat} book${ok.length === 1 ? '' : 's'} checked${flagged ? `, ${flagged} to fix` : ''}.`);
+    wallCat = null;
+    renderWall();
+    window.scrollTo(0, 0);
+  } catch (e) {
+    toast('Couldn\'t save: ' + e.message);
+    renderWallBar();
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.id === 'wallDone') { wallDone(); return; }
+  if (t.dataset.wcat) { wallCat = t.dataset.wcat; confirmDone = false; renderWall(); return; }
+  if (t.dataset.flag) {
+    const b = S.books.get(t.dataset.flag);
+    if (!b) return;
+    const before = !!b.needsFix;
+    b.needsFix = !before;
+    wallFlags.add(b.id);
+    t.setAttribute('aria-pressed', String(b.needsFix));
+    t.setAttribute('aria-label', `${b.title}: ${b.needsFix ? 'marked wrong' : 'looks right'}`);
+    confirmDone = false;
+    renderWallBar();
+    try { await updateBook(b.id, { needsFix: b.needsFix }); }
+    catch (err) { b.needsFix = before; t.setAttribute('aria-pressed', String(before)); renderWallBar(); toast('Couldn\'t save: ' + err.message); }
+  }
+});
+
+// --- To fix ----------------------------------------------------------------------------------
+
+function renderFixList() {
+  const el = $('#fix');
+  if (!isMember()) {
+    el.innerHTML = `<div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div><p class="empty">Sign in from the library menu to fix books.</p>`;
+    return;
+  }
+  const all = toFix().sort(compare('Author'));
+  const wrong = all.filter((b) => b.needsFix);
+  const noCover = all.filter((b) => !b.needsFix && !b.cover);
+  const row = (b) => `
+    <a class="fix-row" href="#/book/${esc(b.id)}">
+      <span class="cv">${coverBox(b, 44, 66)}</span>
+      <span style="flex:1;min-width:0"><span class="tt" style="display:block">${esc(b.title)}</span><span class="sub" style="display:block">${esc([byLine(b), b.publisher, b.year].filter(Boolean).join(' · '))}</span></span>
+      ${I.right}
+    </a>`;
+  el.innerHTML = `
+    <div class="page-top"><a class="back tap" href="#/wall">${I.back}Cover wall</a></div>
+    <header class="page-head"><h1 class="disp">To fix</h1>
+      <p>${all.length ? 'Open a book to find the right edition, pick another cover, or take a photo of yours.' : 'Nothing to fix.'}</p></header>
+    ${wrong.length ? `<div class="section-head" style="padding-top:12px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
+    ${noCover.length ? `<div class="section-head"><span class="name">No cover</span><span class="of">${noCover.length}</span></div><div class="fix-list">${noCover.map(row).join('')}</div>` : ''}
+    <div style="height:40px"></div>`;
+  observeCovers(el);
+}
+
+// --- Fix panel (book page) -------------------------------------------------------------------
+
+const fixState = new Map(); // bookId → { open, loading, results, errors, pick, busy, status }
+
+function fixPanelHtml(b) {
+  if (!isMember()) return '';
+  const st = fixState.get(b.id) || {};
+  const needs = b.needsFix || !b.cover;
+  if (!needs && b.verified && !st.open) return '';
+  if (!needs && !st.open) {
+    return `<div class="fixp ch12"><div class="ch12i q">
+      <span class="what">Is this your copy's edition?</span>
+      <button class="btn-ink tap ch8" data-fx="yes" style="height:44px;padding:0 20px">Yes</button>
+      <button class="btn-line ch8" data-fx="no" style="height:44px"><span class="ch8i tap" style="padding:0 18px">No</span></button>
+    </div></div>`;
+  }
+  const eds = st.results || [];
+  return `<div class="fixp ch12"><div class="ch12i">
+    <h3>${!b.cover && !b.needsFix ? 'Find a cover' : 'Find the right edition'}</h3>
+    <p class="hint">Search other editions, look on Google Images (save the picture, then use Photo), or photograph your copy.</p>
+    <div class="acts">
+      <button class="btn-line ch8" data-fx="search"${st.loading || st.busy ? ' disabled' : ''}><span class="ch8i tap">${st.results ? 'Search again' : 'Search editions'}</span></button>
+      <a class="btn-line ch8" href="${esc(imageSearchUrl(b))}" target="_blank" rel="noopener" style="height:44px;text-decoration:none"><span class="ch8i tap" style="padding:0 14px">Google Images</span></a>
+      <label class="btn-line ch8" style="height:44px;cursor:pointer"><span class="ch8i tap" style="padding:0 14px">Photo</span><input type="file" accept="image/*" data-fx="photo" hidden></label>
+    </div>
+    ${st.status ? `<p class="status" role="status">${esc(st.status)}</p>` : ''}
+    ${eds.length ? `<div class="eds">${eds.map((e, i) => `
+      <button data-ed="${i}" aria-pressed="${st.pick === i}">
+        <span class="im"><img src="${esc(e.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></span>
+        <span class="m">${esc([e.publisher, e.year, LANGS[e.language] || e.language].filter(Boolean).join(' · ') || e.source)}</span>
+      </button>`).join('')}</div>` : ''}
+    ${st.pick != null && eds[st.pick] ? `<div class="pickbar">
+      <button class="btn-ink tap ch8" data-fx="use" style="height:44px"${st.busy ? ' disabled' : ''}>Use this edition</button>
+      <button class="btn-line ch8" data-fx="coveronly" style="height:44px"${st.busy ? ' disabled' : ''}><span class="ch8i tap">Cover only</span></button>
+    </div>
+    <p class="hint" style="margin:8px 0 0">"Use this edition" also takes its ISBN, publisher and year.</p>` : ''}
+    ${b.needsFix ? `<button class="ok tap" data-fx="right">It's right after all</button>` : ''}
+  </div></div>`;
+}
+
+function setFix(id, patch) {
+  fixState.set(id, { ...(fixState.get(id) || {}), ...patch });
+  renderBook(id);
+}
+
+async function finishFix(id, fields, msg) {
+  const b = S.books.get(id);
+  Object.assign(b, fields, { verified: true, needsFix: false });
+  fixState.delete(id);
+  renderBook(id);
+  toast(msg);
+}
+
+function wireFixPanel(el, id) {
+  const b = S.books.get(id);
+  el.querySelectorAll('[data-fx]').forEach((x) => {
+    const act = x.dataset.fx;
+    if (act === 'photo') {
+      x.addEventListener('change', async () => {
+        const file = x.files?.[0];
+        if (!file) return;
+        setFix(id, { busy: true, status: 'Saving your photo…' });
+        try {
+          const c = await coverFromFile(file);
+          await saveCover(id, c, { verified: true, needsFix: false });
+          finishFix(id, { cover: { id, w: c.w, h: c.h, source: c.source } }, 'Cover saved.');
+        } catch (e) { setFix(id, { busy: false, status: 'Couldn\'t save the photo: ' + e.message }); }
+      });
+      return;
+    }
+    x.addEventListener('click', async () => {
+      const st = fixState.get(id) || {};
+      if (act === 'yes') {
+        try { await updateBook(id, { verified: true, needsFix: false }); finishFix(id, {}, 'Marked as checked.'); }
+        catch (e) { toast('Couldn\'t save: ' + e.message); }
+      } else if (act === 'no') {
+        b.needsFix = true;
+        setFix(id, { open: true });
+        updateBook(id, { needsFix: true }).catch((e) => toast('Couldn\'t save: ' + e.message));
+      } else if (act === 'right') {
+        try { await updateBook(id, { verified: true, needsFix: false }); finishFix(id, {}, 'Marked as checked.'); }
+        catch (e) { toast('Couldn\'t save: ' + e.message); }
+      } else if (act === 'search') {
+        setFix(id, { open: true, loading: true, pick: null, status: 'Looking for other editions…' });
+        const { editions, errors } = await findEditions(b);
+        setFix(id, {
+          loading: false, results: editions,
+          status: editions.length ? `${editions.length} edition${editions.length === 1 ? '' : 's'} with a cover. Tap the one that matches your copy.`
+            : `No other editions with a cover found${errors.length ? ` (${errors.join('; ')})` : ''}. Try Google Images or a photo.`,
+        });
+      } else if (act === 'use' || act === 'coveronly') {
+        const e = st.results?.[st.pick];
+        if (!e) return;
+        setFix(id, { busy: true, status: 'Saving…' });
+        const details = act === 'use' ? Object.fromEntries(Object.entries({
+          isbn: e.isbn, publisher: e.publisher, year: e.year ? Number(e.year) : null, language: e.language,
+        }).filter(([, v]) => v)) : {};
+        try {
+          const c = await coverFromUrl(e.cover, e.source);
+          let cover;
+          if (c.mode === 'copied') {
+            await saveCover(id, c, { ...details, verified: true, needsFix: false });
+            cover = { id, w: c.w, h: c.h, source: c.source };
+          } else {
+            cover = { url: c.url, w: c.w, h: c.h, source: c.source };
+            await updateBook(id, { cover, ...details, verified: true, needsFix: false });
+          }
+          finishFix(id, { cover, ...details }, act === 'use' ? 'Edition and cover saved.' : 'Cover saved.');
+        } catch (err) { setFix(id, { busy: false, status: 'Couldn\'t use that one: ' + err.message }); }
+      }
+    });
+  });
+  el.querySelectorAll('[data-ed]').forEach((x) => x.addEventListener('click', () => setFix(id, { pick: Number(x.dataset.ed) })));
+}
+
 // --- Routing --------------------------------------------------------------------------------
+
+const VIEWS = ['library', 'book', 'wall', 'fix'];
+function show(v) {
+  for (const x of VIEWS) $('#' + x).hidden = x !== v;
+  $('#nav').hidden = v === 'wall';
+  if (v !== 'wall') $('#wallbar').hidden = true;
+}
+const viewOf = (h) => (/^#\/book\//.test(h) ? 'book' : h.startsWith('#/wall') ? 'wall' : h.startsWith('#/fix') ? 'fix' : 'library');
 
 let libScroll = 0;
 function route() {
   const h = location.hash;
-  const m = h.match(/^#\/book\/(.+)$/);
-  if (m) {
-    if (!$('#library').hidden) libScroll = window.scrollY;
-    $('#library').hidden = true;
-    $('#book').hidden = false;
-    renderBook(decodeURIComponent(m[1]));
-    window.scrollTo(0, 0);
-    return;
-  }
+  const v = viewOf(h);
+  if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
+  if (v === 'book') { show('book'); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
+  if (v === 'wall') { confirmDone = false; show('wall'); renderWall(); window.scrollTo(0, 0); return; }
+  if (v === 'fix') { show('fix'); renderFixList(); window.scrollTo(0, 0); return; }
   // "#/?q=…" opens the library searching (used by the series row).
   const q = h.match(/[?&]q=([^&]*)/);
-  if (q) { S.q = decodeURIComponent(q[1]); S.searching = true; S.cat = 'All'; renderToolbar(); renderList(); libScroll = 0; }
-  $('#book').hidden = true;
-  $('#library').hidden = false;
+  if (q) { S.q = decodeURIComponent(q[1]); S.searching = true; S.cat = 'All'; libScroll = 0; }
+  show('library');
+  renderLibrary();
   requestAnimationFrame(() => window.scrollTo(0, libScroll));
 }
 window.addEventListener('hashchange', route);
@@ -499,7 +756,6 @@ function start() {
     if (location.hash === '' || location.hash === '#/') { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   });
 
-  renderLibrary();
   route();
 
   loadCatalogue((books, authors, series) => {
@@ -520,11 +776,13 @@ function start() {
 }
 
 function rerender() {
-  const m = location.hash.match(/^#\/book\/(.+)$/);
-  if (m) renderBook(decodeURIComponent(m[1]));
+  const v = viewOf(location.hash);
   const y = window.scrollY;
-  renderLibrary();
-  if (!$('#library').hidden) window.scrollTo(0, y);
+  if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
+  else if (v === 'wall') renderWall();
+  else if (v === 'fix') renderFixList();
+  else renderLibrary();
+  window.scrollTo(0, y);
 }
 
 start();
