@@ -194,7 +194,28 @@ export async function brasilApi(isbn) {
   };
 }
 
-const SOURCES = { google: googleBooks, openlibrary: openLibrary, libris, brasil: brasilApi };
+// Last fallback, covers only. Not a documented API: Amazon serves product images
+// by ISBN-10 at this address, and a 1×1 GIF when it has none (the load check
+// rejects that). May stop working at any time; nothing else depends on it.
+export function isbn13to10(isbn) {
+  if (!/^978\d{10}$/.test(isbn)) return null; // 979 ISBNs have no ISBN-10
+  const core = isbn.slice(3, 12);
+  const sum = [...core].reduce((a, d, i) => a + Number(d) * (10 - i), 0);
+  const c = (11 - (sum % 11)) % 11;
+  return core + (c === 10 ? 'X' : String(c));
+}
+
+export async function amazonCover(isbn) {
+  const i10 = isbn13to10(isbn);
+  if (!i10) return null;
+  return {
+    source: 'Amazon', title: null, subtitle: null, authors: [], publisher: null,
+    year: null, language: null, pages: null,
+    cover: `https://images-na.ssl-images-amazon.com/images/P/${i10}.01.LZZZZZZZ.jpg`,
+  };
+}
+
+const SOURCES = { amazon: amazonCover, google: googleBooks, openlibrary: openLibrary, libris, brasil: brasilApi };
 
 // Runs every source, never throws. Returns { isbn, results: {key: rec|null|{error}}, merged }.
 async function run1(key, isbn) {
@@ -245,6 +266,12 @@ export async function lookupAll(isbn, { all = false } = {}) {
   }
   const results = { google, openlibrary, libris: librisRes };
   if (br) results.brasil = brasil;
+  const anyCover = [...firstRound, google].some((r) => r && !r.error && !r.skipped && r.cover);
+  if (!anyCover) {
+    const amazon = await run1('amazon', isbn);
+    if (amazon && !amazon.error && !(await coverLoads(amazon.cover))) amazon.cover = null;
+    if (amazon?.cover) results.amazon = amazon;
+  }
   return { isbn, results, merged: merge(isbn, results) };
 }
 
@@ -253,6 +280,7 @@ export function merge(isbn, results) {
   const order = region === 'se' ? ['libris', 'openlibrary', 'google']
     : region === 'br' ? ['brasil', 'openlibrary', 'google', 'libris']
     : ['openlibrary', 'libris', 'google'];
+  order.push('amazon');
   const ok = order.map((k) => results[k]).filter((r) => r && !r.error && !r.skipped);
   if (!ok.length) return null;
   const first = (f) => ok.map((r) => r[f]).find((v) => (Array.isArray(v) ? v.length : v)) ?? null;
