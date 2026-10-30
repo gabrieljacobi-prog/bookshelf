@@ -1,0 +1,84 @@
+// Firebase setup and every read/write the app makes.
+// Firestore keeps a local copy on the phone, so the library opens from cache
+// and then refreshes from the server.
+
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged,
+} from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
+import {
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, getDocs, getDocsFromCache, getDoc, getDocFromCache, setDoc,
+} from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+import { firebaseConfig } from './firebase-config.js?v=3';
+
+export const MEMBERS = {
+  'gabriel.jacobi@gmail.com': 'flor',
+  'ingrid.skare@gmail.com': 'ingrid',
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+let db;
+try {
+  db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+} catch {
+  db = initializeFirestore(app, {}); // private windows can't keep a cache
+}
+
+// --- Auth -------------------------------------------------------------------
+
+export function onUser(cb) {
+  onAuthStateChanged(auth, (u) => cb(u ? { email: u.email, member: MEMBERS[u.email] || null } : null));
+}
+export async function signIn() {
+  const p = new GoogleAuthProvider();
+  try { await signInWithPopup(auth, p); }
+  catch (e) {
+    // Mobile browsers often block the popup; a redirect always works.
+    if (/popup/.test(e.code || '')) await signInWithRedirect(auth, p);
+    else throw e;
+  }
+}
+export const signOutUser = () => signOut(auth);
+
+// --- Reads --------------------------------------------------------------------
+
+const toMap = (snap) => new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+
+// Calls onData once from the local cache (if any) and again from the server.
+export async function loadCatalogue(onData) {
+  const names = ['books', 'authors', 'series'];
+  try {
+    const cached = await Promise.all(names.map((n) => getDocsFromCache(collection(db, n))));
+    if (cached[0].size) onData(...cached.map(toMap), { fromCache: true });
+  } catch { /* no cache yet */ }
+  const fresh = await Promise.all(names.map((n) => getDocs(collection(db, n))));
+  onData(...fresh.map(toMap), { fromCache: false });
+}
+
+export async function loadPrivate() {
+  return toMap(await getDocs(collection(db, 'private')));
+}
+
+// Cover images: thumb for the grid, large ("-l") for the book page.
+const coverMem = new Map();
+export async function coverImage(bookId, size = 'thumb') {
+  const id = size === 'large' ? bookId + '-l' : bookId;
+  if (coverMem.has(id)) return coverMem.get(id);
+  const p = (async () => {
+    const ref = doc(db, 'covers', id);
+    let snap;
+    try { snap = await getDocFromCache(ref); } catch { snap = await getDoc(ref); }
+    return snap.exists() ? snap.data().image : null;
+  })();
+  coverMem.set(id, p);
+  p.catch(() => coverMem.delete(id));
+  return p;
+}
+
+// --- Writes (members only; the rules enforce it) ---------------------------------
+
+export function savePrivate(bookId, fields) {
+  return setDoc(doc(db, 'private', bookId), fields, { merge: true });
+}
