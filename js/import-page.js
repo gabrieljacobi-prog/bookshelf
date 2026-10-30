@@ -5,6 +5,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
 import { lookupAll } from './lookup.js?v=10';
+
 import { cleanExport } from './import-clean.js?v=1';
 
 const MEMBERS = ['gabriel.jacobi@gmail.com', 'ingrid.skare@gmail.com'];
@@ -106,6 +107,8 @@ function encode(img, { edge, budget }) {
 async function prepareCover(book) {
   if (!book.isbn) return null;
   const res = await lookupAll(book.isbn);
+  // Why nothing was found, for the log: source errors (quota, timeouts) vs. genuinely no cover.
+  book._why = Object.entries(res.results).filter(([, r]) => r?.error).map(([k, r]) => `${k}: ${r.error}`).join('; ');
   const candidates = res.merged?.covers || [];
   let link = null;
   for (const c of candidates) {
@@ -273,7 +276,7 @@ $('retry').onclick = async () => {
         await b.commit();
       }
       t[cover?.mode || 'none']++;
-      rlog(`${cover ? (cover.mode === 'copied' ? '■' : '□') : '·'} ${book.title}${cover ? ` (${cover.source}${cover.mode === 'link' ? ', link' : ''})` : ''}`);
+      rlog(`${cover ? (cover.mode === 'copied' ? '■' : '□') : '·'} ${book.title}${cover ? ` (${cover.source}${cover.mode === 'link' ? ', link' : ''})` : book._why ? ` — ${book._why}` : ''}`);
       $('rbar').value = ++done;
       rstatus(`${done} of ${books.length} · ${t.copied} copied · ${t.link} linked · ${t.none} still without`);
       await new Promise((r) => setTimeout(r, 600));
