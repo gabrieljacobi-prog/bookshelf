@@ -399,7 +399,7 @@ function renderBook(id) {
   }).join('');
 
   el.innerHTML = `
-    <div class="book-top"><a class="back tap" href="#/" id="back">${I.back}Library</a>${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
+    <div class="book-top"><a class="back tap" href="${backTo.href}" id="back">${I.back}${backTo.label}</a>${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
     <section class="plinth">
       ${coverHtml}
       <div class="line" aria-hidden="true"></div>
@@ -894,9 +894,18 @@ function show(v) {
 const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/wall') ? 'wall' : h.startsWith('#/fix') ? 'fix' : 'library');
 
 let libScroll = 0;
+// The book page's back link returns to where the book was opened from.
+let backTo = { href: '#/', label: 'Library' };
+let lastView = 'library';
 function route() {
   const h = location.hash;
   const v = viewOf(h);
+  if (v === 'book' && lastView !== 'book' && lastView !== 'edit') {
+    backTo = lastView === 'fix' ? { href: '#/fix', label: 'To fix' }
+      : lastView === 'wall' ? { href: '#/wall', label: 'Cover wall' }
+      : { href: '#/', label: 'Library' };
+  }
+  lastView = v;
   if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
   if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
   if (v === 'book') { show('book'); editDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
