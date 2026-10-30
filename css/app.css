@@ -316,3 +316,8 @@ svg { display: block; flex: none; }
 .fixp .add-msg { margin: 6px 0 0; }
 button.back { background: none; border: 0; color: var(--ink); }
 .ecov .cover.ph { --phPad: 8px 7px 9px; --phA: 9px; --phT: 13px; }
+/* Crop view: takes every touch (no page scroll or zoom behind it); the hint and
+   buttons always stay above the picture, and the picture stays inside its area. */
+.crop { touch-action: none; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+.crop-stage { overflow: hidden; }
+.crop-hint, .crop-acts { position: relative; z-index: 2; flex: none; background-color: var(--bg); background-image: var(--grainImg); background-size: 256px; background-blend-mode: soft-light; }

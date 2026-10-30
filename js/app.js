@@ -4,7 +4,7 @@ import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=1';
 import { toIsbn13, lookupAll } from './lookup.js?v=11';
 import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=1';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
-import { cropImage } from './crop.js?v=1';
+import { cropImage } from './crop.js?v=2';
 import { findEditions, imageSearchUrl } from './editions.js?v=3';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];

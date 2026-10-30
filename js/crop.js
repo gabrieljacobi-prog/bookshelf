@@ -50,8 +50,22 @@ function openCropper(src, done) {
       <button type="button" class="btn-ink tap ch8" data-c="crop">Crop</button>
     </div>`;
   document.body.appendChild(ov);
-  const prevOverflow = document.body.style.overflow;
+  // Nothing behind may scroll or zoom while cropping: on Firefox for Android a
+  // drag could scroll the page (hiding the address bar) and leave the buttons
+  // off screen or under the picture.
+  const html = document.documentElement;
+  const prev = [document.body.style.overflow, html.style.overflow];
   document.body.style.overflow = 'hidden';
+  html.style.overflow = 'hidden';
+  const noScroll = (e) => { if (e.cancelable) e.preventDefault(); };
+  ov.addEventListener('touchmove', noScroll, { passive: false });
+  // The view covers exactly what's visible, even if the browser's bars move or the page is zoomed.
+  const vv = window.visualViewport;
+  function fit() {
+    if (!vv) return;
+    Object.assign(ov.style, { left: vv.offsetLeft + 'px', top: vv.offsetTop + 'px', width: vv.width + 'px', height: vv.height + 'px', right: 'auto', bottom: 'auto' });
+  }
+  fit();
 
   const stage = ov.querySelector('.crop-stage'), frame = ov.querySelector('.crop-frame');
   const view = ov.querySelector('.crop-img'), svg = ov.querySelector('.crop-svg'), loupe = ov.querySelector('.crop-loupe');
@@ -59,7 +73,9 @@ function openCropper(src, done) {
   let k = 1; // display px per working px
 
   function layout() {
+    if (drag >= 0) { relayout = true; return; } // after the finger lifts
     const r = stage.getBoundingClientRect();
+    if (r.width < 40 || r.height < 40) return;
     k = Math.min((r.width - 32) / W, (r.height - 32) / H);
     const dw = Math.round(W * k), dh = Math.round(H * k);
     frame.style.width = dw + 'px'; frame.style.height = dh + 'px';
@@ -80,7 +96,7 @@ function openCropper(src, done) {
   }
 
   // Dragging: the nearest corner within reach follows the finger.
-  let drag = -1;
+  let drag = -1, relayout = false;
   const toWork = (e) => {
     const r = frame.getBoundingClientRect();
     return [Math.max(0, Math.min(W, (e.clientX - r.left) / k)), Math.max(0, Math.min(H, (e.clientY - r.top) / k))];
@@ -101,7 +117,7 @@ function openCropper(src, done) {
     draw();
     showLoupe(e);
   });
-  const end = () => { drag = -1; loupe.hidden = true; };
+  const end = () => { drag = -1; loupe.hidden = true; if (relayout) { relayout = false; layout(); } };
   stage.addEventListener('pointerup', end);
   stage.addEventListener('pointercancel', end);
 
@@ -130,16 +146,25 @@ function openCropper(src, done) {
     g.beginPath(); g.moveTo(c - 10 * dpr, c); g.lineTo(c + 10 * dpr, c); g.moveTo(c, c - 10 * dpr); g.lineTo(c, c + 10 * dpr); g.stroke();
   }
 
+  let closed = false;
   function close(result) {
-    window.removeEventListener('resize', layout);
+    if (closed) return; // a tap can arrive as both pointerup and click
+    closed = true;
+    ro.disconnect();
+    vv?.removeEventListener('resize', fit);
+    vv?.removeEventListener('scroll', fit);
     document.removeEventListener('keydown', onKey);
-    document.body.style.overflow = prevOverflow;
+    [document.body.style.overflow, html.style.overflow] = prev;
     ov.remove();
     done(result);
   }
   const onKey = (e) => { if (e.key === 'Escape') close(null); };
   document.addEventListener('keydown', onKey);
-  window.addEventListener('resize', layout);
+  // Re-fit whenever the stage changes size (rotation, browser bars), not just on window resize.
+  const ro = new ResizeObserver(() => layout());
+  ro.observe(stage);
+  vv?.addEventListener('resize', fit);
+  vv?.addEventListener('scroll', fit);
   ov.querySelector('[data-c="cancel"]').addEventListener('click', () => close(null));
   ov.querySelector('[data-c="whole"]').addEventListener('click', () => close(src));
   ov.querySelector('[data-c="crop"]').addEventListener('click', () => {
@@ -147,6 +172,8 @@ function openCropper(src, done) {
     b.disabled = true; b.textContent = 'Straightening…';
     setTimeout(() => close(warp(src, pts)), 30); // let the label paint first
   });
+  // Buttons act on pointerup too: if a stray drag swallowed the click, the tap still counts.
+  ov.querySelectorAll('[data-c]').forEach((btn) => btn.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') { e.preventDefault(); btn.click(); } }));
   requestAnimationFrame(layout);
 }
 
