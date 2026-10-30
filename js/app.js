@@ -1,5 +1,5 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits } from './data.js?v=4';
+import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits } from './data.js?v=4';
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
@@ -145,16 +145,15 @@ function coverBox(b, W, H, cls = '') {
 function renderLibrary() {
   const el = $('#library');
   const n = S.books.size;
-  const unverified = [...S.books.values()].filter((b) => !b.verified && b.cover && !b.needsFix).length;
-  const fixN = [...S.books.values()].filter((b) => b.needsFix || !b.cover).length;
+  const fixN = toFix().length;
   el.innerHTML = `
     <header class="hero">
       <div><div class="count disp">${S.loaded ? n : '&nbsp;'}</div><div class="lbl" style="margin-top:8px">Books</div></div>
       <h1 class="disp">Library</h1>
     </header>
-    ${isMember() && (unverified || fixN) && !S.reviewHidden ? `
+    ${isMember() && fixN && !S.reviewHidden ? `
     <div class="review">
-      <button id="reviewGo"><span class="dot"></span><span class="what">${unverified ? `${unverified} book${unverified === 1 ? '' : 's'} to check` : `${fixN} book${fixN === 1 ? '' : 's'} to fix`}</span><span class="tap go">${unverified ? 'Cover wall' : 'To fix'}</span></button>
+      <button id="reviewGo"><span class="dot"></span><span class="what">${fixN} book${fixN === 1 ? '' : 's'} to fix</span><span class="tap go">To fix</span></button>
       <button class="x icon-btn" id="hideReview" aria-label="Hide (the menu brings it back)">${I.x}</button>
     </div>` : ''}
     <div class="sticky grain" id="sticky">
@@ -162,7 +161,7 @@ function renderLibrary() {
       <div class="toolbar" id="toolbar"></div>
     </div>
     <div class="list" id="list"></div>`;
-  $('#reviewGo')?.addEventListener('click', () => { location.hash = unverified ? '#/wall' : '#/fix'; });
+  $('#reviewGo')?.addEventListener('click', () => { location.hash = '#/fix'; });
   $('#hideReview')?.addEventListener('click', () => { S.reviewHidden = true; store.set('reviewHidden', '1'); renderLibrary(); });
   renderToolbar();
   renderList();
@@ -220,7 +219,6 @@ function renderToolbar() {
           : '<button data-act="signin">Sign in</button>'}
         ${isMember() ? `
         <div class="mh lbl">Checking books</div>
-        <button data-go="#/wall">Cover wall</button>
         <button data-go="#/fix">To fix</button>
         ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
         <div class="mh lbl">Temporary tools</div>
@@ -478,110 +476,7 @@ function renderBook(id) {
   });
 }
 
-// --- Cover wall ---------------------------------------------------------------------------
-// One category at a time. Tap the covers that don't match your copy (saved at
-// once as needsFix); Done marks the rest checked. Books without a cover can't
-// be judged by eye, so they go straight to the fix list.
-
-const wallFlags = new Set(); // flagged on the wall this visit, kept visible until Done
-let wallCat = null;
-let confirmDone = false;
-
 const toFix = () => [...S.books.values()].filter((b) => b.needsFix || !b.cover);
-function wallBooks(cat) {
-  return [...S.books.values()]
-    .filter((b) => !b.verified && b.cover && b.category === cat && (!b.needsFix || wallFlags.has(b.id)))
-    .sort(compare('Author'));
-}
-
-function renderWall() {
-  const el = $('#wall');
-  if (!isMember()) {
-    el.innerHTML = `<div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div><p class="empty">Sign in from the library menu to check covers.</p>`;
-    $('#wallbar').hidden = true;
-    return;
-  }
-  const counts = Object.fromEntries(CATS.map((c) => [c, wallBooks(c).length]));
-  if (!wallCat || (!counts[wallCat] && !wallFlags.size)) wallCat = CATS.find((c) => counts[c]) || CATS[0];
-  const books = wallBooks(wallCat);
-  const fixN = toFix().length;
-  const W = Math.floor((Math.min(document.documentElement.clientWidth, 600) - 40 - 12 * 3) / 4);
-  const H = Math.round(W * 1.585);
-  el.innerHTML = `
-    <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
-    <header class="page-head">
-      <h1 class="disp">Cover wall</h1>
-      <p>Tap every cover that doesn't match your copy. Done marks the rest as checked.</p>
-    </header>
-    <div class="tabs" role="tablist">${CATS.map((c) => `<button role="tab" class="tap" data-wcat="${c}" aria-selected="${c === wallCat}">${c}<span class="c">${counts[c]}</span></button>`).join('')}</div>
-    ${fixN ? `<a class="tofix" href="#/fix"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span><span class="what">${fixN} book${fixN === 1 ? '' : 's'} to fix</span>${I.right}</a>` : ''}
-    ${books.length ? `<div class="wall-grid" style="--cols:4;--gap:12px;--H:${H}px;--phA:7px;--phT:10px;--phPad:6px 6px 7px">${books.map((b) => `
-      <button data-flag="${esc(b.id)}" aria-pressed="${!!b.needsFix}" aria-label="${esc(b.title)}: ${b.needsFix ? 'marked wrong' : 'looks right'}">
-        <span class="slot"><span class="wrap">${coverBox(b, W, H)}<span class="flag" aria-hidden="true">${I.x}</span></span></span>
-        <span class="t">${esc(b.title)}</span>
-      </button>`).join('')}</div>`
-      : `<p class="empty">${CATS.some((c) => counts[c]) ? `Nothing left to check in ${wallCat}.` : 'Every cover has been checked.'}</p>`}
-    <div style="height:40px"></div>`;
-  observeCovers(el);
-  renderWallBar(books);
-}
-
-function renderWallBar(books = wallBooks(wallCat)) {
-  const bar = $('#wallbar');
-  const flagged = books.filter((b) => b.needsFix).length;
-  const ok = books.length - flagged;
-  bar.hidden = !books.length;
-  bar.innerHTML = `
-    <span class="n">${flagged ? `${flagged} marked wrong` : 'None marked wrong'}</span>
-    <button class="btn-ink tap ch8" id="wallDone">${confirmDone ? 'Tap again to confirm' : `Done · ${ok} checked`}</button>`;
-}
-
-async function wallDone() {
-  if (!confirmDone) {
-    confirmDone = true;
-    renderWallBar();
-    clearTimeout(wallDone.t);
-    wallDone.t = setTimeout(() => { confirmDone = false; renderWallBar(); }, 3500);
-    return;
-  }
-  confirmDone = false;
-  const books = wallBooks(wallCat);
-  const ok = books.filter((b) => !b.needsFix);
-  const flagged = books.length - ok.length;
-  $('#wallDone').disabled = true;
-  try {
-    await updateBooks(ok.map((b) => [b.id, { verified: true }]));
-    for (const b of ok) b.verified = true;
-    for (const b of books) wallFlags.delete(b.id);
-    toast(`${ok.length} ${wallCat} book${ok.length === 1 ? '' : 's'} checked${flagged ? `, ${flagged} to fix` : ''}.`);
-    wallCat = null;
-    renderWall();
-    window.scrollTo(0, 0);
-  } catch (e) {
-    toast('Couldn\'t save: ' + e.message);
-    renderWallBar();
-  }
-}
-
-document.addEventListener('click', async (e) => {
-  const t = e.target.closest('button');
-  if (!t) return;
-  if (t.id === 'wallDone') { wallDone(); return; }
-  if (t.dataset.wcat) { wallCat = t.dataset.wcat; confirmDone = false; renderWall(); return; }
-  if (t.dataset.flag) {
-    const b = S.books.get(t.dataset.flag);
-    if (!b) return;
-    const before = !!b.needsFix;
-    b.needsFix = !before;
-    wallFlags.add(b.id);
-    t.setAttribute('aria-pressed', String(b.needsFix));
-    t.setAttribute('aria-label', `${b.title}: ${b.needsFix ? 'marked wrong' : 'looks right'}`);
-    confirmDone = false;
-    renderWallBar();
-    try { await updateBook(b.id, { needsFix: b.needsFix }); }
-    catch (err) { b.needsFix = before; t.setAttribute('aria-pressed', String(before)); renderWallBar(); toast('Couldn\'t save: ' + err.message); }
-  }
-});
 
 // --- To fix ----------------------------------------------------------------------------------
 
@@ -601,7 +496,7 @@ function renderFixList() {
       ${I.right}
     </a>`;
   el.innerHTML = `
-    <div class="page-top"><a class="back tap" href="#/wall">${I.back}Cover wall</a></div>
+    <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
     <header class="page-head"><h1 class="disp">To fix</h1>
       <p>${all.length ? 'Open a book to find the right edition, pick another cover, or take a photo of yours.' : 'Nothing to fix.'}</p></header>
     ${wrong.length ? `<div class="section-head" style="padding-top:12px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
@@ -1036,13 +931,11 @@ const existingSeriesName = (sid) => (sid ? S.series.get(sid)?.name : null);
 
 // --- Routing --------------------------------------------------------------------------------
 
-const VIEWS = ['library', 'book', 'wall', 'fix'];
+const VIEWS = ['library', 'book', 'fix'];
 function show(v) {
   for (const x of VIEWS) $('#' + x).hidden = x !== v;
-  $('#nav').hidden = v === 'wall';
-  if (v !== 'wall') $('#wallbar').hidden = true;
 }
-const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/wall') ? 'wall' : h.startsWith('#/fix') ? 'fix' : 'library');
+const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix' : 'library');
 
 let libScroll = 0;
 // The book page's back link returns to where the book was opened from.
@@ -1053,14 +946,13 @@ function route() {
   const v = viewOf(h);
   if (v === 'book' && lastView !== 'book' && lastView !== 'edit') {
     backTo = lastView === 'fix' ? { href: '#/fix', label: 'To fix' }
-      : lastView === 'wall' ? { href: '#/wall', label: 'Cover wall' }
       : { href: '#/', label: 'Library' };
   }
   lastView = v;
   if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
   if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
   if (v === 'book') { show('book'); editDraft.clear(); coverDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
-  if (v === 'wall') { confirmDone = false; show('wall'); renderWall(); window.scrollTo(0, 0); return; }
+  if (h.startsWith('#/wall')) { location.replace('#/fix'); return; } // old bookmarks
   if (v === 'fix') { show('fix'); renderFixList(); window.scrollTo(0, 0); return; }
   // "#/?q=…" opens the library searching (used by the series row).
   const q = h.match(/[?&]q=([^&]*)/);
@@ -1109,7 +1001,6 @@ function rerender() {
   const y = window.scrollY;
   if (v === 'edit') { if (!$('#editForm')) renderEdit(decodeURIComponent(location.hash.slice(7, -5))); }
   else if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
-  else if (v === 'wall') renderWall();
   else if (v === 'fix') renderFixList();
   else renderLibrary();
   window.scrollTo(0, y);
