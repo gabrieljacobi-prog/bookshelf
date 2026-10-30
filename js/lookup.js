@@ -296,3 +296,26 @@ export function merge(isbn, results) {
     covers: ok.filter((r) => r.cover).map((r) => ({ source: r.source, url: r.cover })),
   };
 }
+
+// When the work itself first came out (not this edition). Open Library groups every
+// edition and translation of a book under one work, with its first_publish_year.
+// By ISBN first (exact); otherwise by title and author, keeping a result whose
+// title matches. Returns { year, source, how } or null.
+const keyOf = (s) => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/^(the|a|an|o|os|as|um|uma|en|ett|den|det|de|het|een|el|la|le|les|il)\s+/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+export async function firstPublished({ isbn, title, author }) {
+  const F = 'fields=first_publish_year,title,author_name&limit=5';
+  if (isbn) {
+    try {
+      const d = await getJson(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&${F}`);
+      const y = d.docs?.[0]?.first_publish_year;
+      if (y) return { year: y, source: 'Open Library', how: 'isbn' };
+    } catch { /* fall through to the title */ }
+  }
+  if (!title) return null;
+  const q = `title=${encodeURIComponent(title)}` + (author ? `&author=${encodeURIComponent(author)}` : '');
+  const d = await getJson(`https://openlibrary.org/search.json?${q}&${F}`);
+  const want = keyOf(title);
+  const hit = (d.docs || []).find((x) => x.first_publish_year && (keyOf(x.title) === want || keyOf(x.title).startsWith(want + ' ')));
+  return hit ? { year: hit.first_publish_year, source: 'Open Library', how: 'title' } : null;
+}

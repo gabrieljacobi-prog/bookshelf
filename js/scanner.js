@@ -1,7 +1,7 @@
 // Barcode scanning for the Add book page: the camera loop from the scanner test,
 // as a module. Firefox on Android has no BarcodeDetector, so ZXing decodes there
 // (loaded only when the camera is first opened; it's 440 KB).
-import { toIsbn13 } from './lookup.js?v=11';
+import { toIsbn13 } from './lookup.js?v=12';
 
 let zxingP = null;
 function loadZxing() {

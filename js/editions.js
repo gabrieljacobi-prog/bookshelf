@@ -1,7 +1,7 @@
 // Other editions of a book, found by title and author rather than ISBN.
 // Used by the fix panel when the cover or the edition is wrong.
 import { firebaseConfig } from './firebase-config.js?v=3';
-import { normLang, toIsbn13, lookupAll } from './lookup.js?v=11';
+import { normLang, toIsbn13, lookupAll } from './lookup.js?v=12';
 
 async function getJson(url, ms = 12000) {
   const ctl = new AbortController();

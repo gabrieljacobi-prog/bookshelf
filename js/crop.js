@@ -155,6 +155,12 @@ function openCropper(src, done) {
     vv?.removeEventListener('scroll', fit);
     document.removeEventListener('keydown', onKey);
     [document.body.style.overflow, html.style.overflow] = prev;
+    // A finger lifted on Whole image / Crop also sends a click a moment later. With
+    // the view gone it would land on whatever is underneath (the bottom bar's
+    // Add book), so swallow taps for a short while.
+    const swallow = (e) => { e.preventDefault(); e.stopPropagation(); };
+    for (const t of ['click', 'pointerup', 'mouseup']) document.addEventListener(t, swallow, true);
+    setTimeout(() => { for (const t of ['click', 'pointerup', 'mouseup']) document.removeEventListener(t, swallow, true); }, 450);
     ov.remove();
     done(result);
   }

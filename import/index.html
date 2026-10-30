@@ -86,7 +86,14 @@
     <div class="row"><button class="btn ghost" id="tidyLoad" disabled>Show the changes</button><button class="btn" id="tidyApply" hidden>Apply</button></div>
     <div id="tidyTable"></div>
   </section>
+  <section id="s-years">
+    <h2>8 · First published</h2>
+    <p class="muted small">Each book's <b>year</b> is kept as this edition's year. This looks up when each work first came out (Open Library, by ISBN, else by title and author) and stores it as <b>first published</b>. About 3 minutes for 409 books. Nothing changes until you press Apply; untick anything that looks wrong.</p>
+    <div class="row"><button class="btn ghost" id="yearsLoad" disabled>Look up the years</button><button class="btn" id="yearsApply" hidden>Apply</button></div>
+    <div id="yprogress" hidden style="margin-top:14px"><progress id="ybar" value="0" max="1"></progress><p class="small" id="ystatus"></p></div>
+    <div id="yearsTable"></div>
+  </section>
 </div>
-<script type="module" src="../js/import-page.js?v=7"></script>
+<script type="module" src="../js/import-page.js?v=8"></script>
 </body>
 </html>

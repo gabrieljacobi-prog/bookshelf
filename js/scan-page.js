@@ -1,4 +1,4 @@
-import { toIsbn13, lookupAll } from './lookup.js?v=11';
+import { toIsbn13, lookupAll } from './lookup.js?v=12';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');

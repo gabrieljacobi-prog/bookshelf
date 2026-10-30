@@ -4,7 +4,7 @@ import {
   getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp, query, where, getDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
-import { lookupAll } from './lookup.js?v=11';
+import { lookupAll, firstPublished } from './lookup.js?v=12';
 
 import { cleanExport } from './import-clean.js?v=1';
 
@@ -69,6 +69,7 @@ function refreshGo() {
   $('go').disabled = !(user && data);
   $('retry').disabled = !user;
   $('tidyLoad').disabled = !user;
+  $('yearsLoad').disabled = !user;
 }
 
 // --- Covers -----------------------------------------------------------------------
@@ -327,6 +328,83 @@ $('tidyApply').onclick = async () => {
     $('tidyTable').insertAdjacentHTML('beforeend', `<p class="small" style="color:var(--accent)">Couldn't save: ${esc(e.message)}</p>`);
   }
   $('tidyApply').disabled = false;
+};
+
+// --- 8. First published --------------------------------------------------------------------
+// `year` stays the edition's year. Open Library's first_publish_year for the work
+// becomes `firstYear`. When Open Library's year is later than the edition's, it only
+// knows reprints, so the edition's year is the earliest we know of and is used.
+
+const GROUPS = [
+  ['later', 'This edition is a later printing', 'first published earlier than the edition year'],
+  ['same', 'Same year as the edition', 'probably a first edition, or the old record had the original year'],
+  ['olLater', 'Open Library only knows later editions', 'the edition year is used as first published'],
+  ['noYear', 'No edition year on file', 'first published filled in; the edition year stays empty'],
+];
+let years = [];
+$('yearsLoad').onclick = async () => {
+  $('yearsLoad').disabled = true;
+  $('yearsApply').hidden = true;
+  $('yearsTable').innerHTML = '';
+  $('yprogress').hidden = false;
+  const snap = await getDocs(collection(db, 'books'));
+  const books = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((b) => b.firstYear == null);
+  years = [];
+  const missed = [];
+  let done = 0;
+  $('ybar').max = books.length || 1;
+  await pool(books, 4, async (b) => {
+    let r = null;
+    try { r = await firstPublished({ isbn: b.isbn, title: b.title, author: b.authors?.[0] }); } catch { /* counted as missed */ }
+    if (!r) missed.push(b);
+    else {
+      const ed = b.year ?? null;
+      const group = ed == null ? 'noYear' : r.year < ed ? 'later' : r.year === ed ? 'same' : 'olLater';
+      years.push({ id: b.id, title: b.title, author: b.authors?.[0] || '', ed, ol: r.year, how: r.how, firstYear: group === 'olLater' ? ed : r.year, group });
+    }
+    done++;
+    $('ybar').value = done;
+    $('ystatus').textContent = `${done} of ${books.length} looked up`;
+  });
+  const byG = groupBy(years, (y) => y.group);
+  $('yearsTable').innerHTML = GROUPS.filter(([g]) => byG[g]).map(([g, label, hint]) => `
+    <details${g === 'olLater' ? ' open' : ''}>
+      <summary>${label} <span class="muted">(${byG[g].length})</span></summary>
+      <p class="muted small" style="margin:6px 0 0">${hint}. "by title" means no ISBN match, so check those.</p>
+      <table>${byG[g].sort((a, b) => a.title.localeCompare(b.title)).map((y) => `<tr>
+        <td style="width:24px"><input type="checkbox" data-y="${esc(y.id)}" checked></td>
+        <td>${esc(y.title)}<br><span class="muted">${esc(y.author)}</span></td>
+        <td>first ${y.firstYear}${y.how === 'title' ? '<br><span class="muted">by title</span>' : ''}</td>
+        <td class="muted">edition ${y.ed ?? '—'}${g === 'olLater' ? `<br>OL ${y.ol}` : ''}</td></tr>`).join('')}</table>
+    </details>`).join('')
+    + (missed.length ? `<details><summary>Not found <span class="muted">(${missed.length})</span></summary><p class="muted small">Left empty; fill in from the edit form (it has a Look up button).</p>
+      <table>${missed.sort((a, b) => a.title.localeCompare(b.title)).map((b) => `<tr><td>${esc(b.title)}<br><span class="muted">${esc(b.authors?.[0] || '')}</span></td><td class="muted">edition ${b.year ?? '—'}</td></tr>`).join('')}</table></details>` : '')
+    + (!books.length ? '<p class="muted small">Every book already has a first-published year.</p>' : '');
+  $('yprogress').hidden = true;
+  $('yearsApply').hidden = !years.length;
+  $('yearsApply').textContent = `Apply ${years.length} years`;
+  $('yearsTable').onchange = () => {
+    const n = $('yearsTable').querySelectorAll('[data-y]:checked').length;
+    $('yearsApply').textContent = `Apply ${n} years`;
+  };
+  $('yearsLoad').disabled = false;
+};
+$('yearsApply').onclick = async () => {
+  $('yearsApply').disabled = true;
+  const on = new Set([...$('yearsTable').querySelectorAll('[data-y]:checked')].map((x) => x.dataset.y));
+  const pick = years.filter((y) => on.has(y.id));
+  try {
+    for (let i = 0; i < pick.length; i += 400) {
+      const b = writeBatch(db);
+      for (const y of pick.slice(i, i + 400)) b.update(doc(db, 'books', y.id), { firstYear: y.firstYear });
+      await b.commit();
+    }
+    $('yearsTable').innerHTML = `<p class="small">Done: ${pick.length} books have a first-published year. Reload the library to see them.</p>`;
+    $('yearsApply').hidden = true;
+  } catch (e) {
+    $('yearsTable').insertAdjacentHTML('beforeend', `<p class="small" style="color:var(--accent)">Couldn't save: ${esc(e.message)}</p>`);
+  }
+  $('yearsApply').disabled = false;
 };
 
 // --- Helpers --------------------------------------------------------------------------

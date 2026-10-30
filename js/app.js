@@ -1,11 +1,11 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
 import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits, newBookId, addBook } from './data.js?v=7';
 import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=1';
-import { toIsbn13, lookupAll } from './lookup.js?v=11';
-import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=1';
+import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=12';
+import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=2';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
-import { cropImage } from './crop.js?v=2';
-import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=4';
+import { cropImage } from './crop.js?v=3';
+import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=5';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -21,7 +21,7 @@ const store = {
 const S = {
   books: new Map(), authors: new Map(), series: new Map(), priv: new Map(),
   loaded: false, user: null,
-  cat: 'All', sort: 'Author', q: '', searching: false, open: null,
+  cat: 'All', sort: 'Recently added', q: '', searching: false, open: null,
   read: 'any', lent: false, // member-only filters
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
   cols: store.get('cols', '3') === '4' ? 4 : 3,
@@ -104,6 +104,7 @@ function applyTheme() {
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
 
+const yr = (b) => b.firstYear ?? b.year ?? null; // when the work came out, else this edition
 function compare(sort) {
   const author = (b) => norm(b.authorSort) || '￿';
   const bySeries = (a, b) => norm(a.seriesName).localeCompare(norm(b.seriesName)) || volNum(a.volume) - volNum(b.volume);
@@ -111,9 +112,9 @@ function compare(sort) {
   switch (sort) {
     case 'Title': return t;
     case 'Recently added': return (a, b) => String(b.addedAt || '').localeCompare(String(a.addedAt || '')) || t(a, b);
-    case 'Year': return (a, b) => (a.year || 9999) - (b.year || 9999) || t(a, b);
+    case 'Year': return (a, b) => (yr(a) ?? 9999) - (yr(b) ?? 9999) || t(a, b);
     case 'Language': return (a, b) => (LANGS[a.language] || 'zz').localeCompare(LANGS[b.language] || 'zz') || author(a).localeCompare(author(b)) || t(a, b);
-    default: return (a, b) => author(a).localeCompare(author(b)) || bySeries(a, b) || (a.year || 0) - (b.year || 0) || t(a, b);
+    default: return (a, b) => author(a).localeCompare(author(b)) || bySeries(a, b) || (yr(a) ?? 0) - (yr(b) ?? 0) || t(a, b);
   }
 }
 
@@ -132,6 +133,7 @@ function metrics() {
   return { n, gap, W, H: Math.round(W * 1.585) };
 }
 
+const shownCovers = new Map(); // cover key → thumb src that has loaded once
 function coverBox(b, W, H, cls = '') {
   const r = b.cover?.w && b.cover?.h ? b.cover.w / b.cover.h : 0.66;
   let w = W, h = Math.round(W / r);
@@ -140,8 +142,11 @@ function coverBox(b, W, H, cls = '') {
   if (!b.cover) {
     return `<span class="cover ph ${cls}" style="${size}" aria-hidden="true"><span class="pa">${esc(byLine(b))}</span><span class="pt">${esc(b.title)}</span></span>`;
   }
+  const key = b.cover.url || `${b.id}@${b.cover.v ?? ''}`;
+  const seen = shownCovers.get(key);
+  if (seen) return `<span class="cover ${cls}" style="${size}"><img alt="" src="${esc(seen)}"></span>`;
   const src = b.cover.url ? ` data-url="${esc(b.cover.url)}"` : ` data-cid="${esc(b.id)}"`;
-  return `<span class="cover loading ${cls}" style="${size}"${src}><img alt="" decoding="async"></span>`;
+  return `<span class="cover loading ${cls}" style="${size}"${src} data-key="${esc(key)}"><img alt="" decoding="async"></span>`;
 }
 
 function renderLibrary() {
@@ -281,7 +286,7 @@ function observeCovers(root) {
 async function loadCover(el, size) {
   const img = el.querySelector('img');
   if (!img) return;
-  img.onload = () => el.classList.remove('loading');
+  img.onload = () => { el.classList.remove('loading'); if (size === 'thumb' && el.dataset.key) shownCovers.set(el.dataset.key, img.src); };
   img.onerror = () => el.classList.remove('loading');
   if (el.dataset.url) { img.src = el.dataset.url; return; }
   try {
@@ -323,10 +328,18 @@ document.addEventListener('click', async (e) => {
   if (S.open && !t.closest('.menu')) { S.open = null; renderToolbar(); }
 });
 
-let resizeT;
+// Only a change of width changes the grid. On a phone the browser's address bar
+// sliding away while scrolling also counts as a resize (height only); redrawing
+// the grid then made every cover blank and fade back in.
+let resizeT, gridWidth = document.documentElement.clientWidth;
 window.addEventListener('resize', () => {
   clearTimeout(resizeT);
-  resizeT = setTimeout(() => { if (!$('#library').hidden) renderList(); }, 150);
+  resizeT = setTimeout(() => {
+    const w = document.documentElement.clientWidth;
+    if (w === gridWidth) return;
+    gridWidth = w;
+    if (!$('#library').hidden) renderList();
+  }, 150);
 });
 
 // --- Book page ------------------------------------------------------------------------------
@@ -357,7 +370,7 @@ function renderBook(id) {
   const editionNote = [b.editionNote, b.signed ? 'Signed' : null].filter(Boolean).join(', ');
   const format = b.format === 'ebook' ? 'Ebook' : b.binding ? b.binding[0].toUpperCase() + b.binding.slice(1) : 'Physical';
   const edition = [
-    ['Publisher', b.publisher], ['Year', b.year], ['Edition note', editionNote],
+    ['Publisher', b.publisher], ['This edition', b.year], ['Edition note', editionNote],
     ['Language', LANGS[b.language] || b.language], ['Format', format], ['Pages', b.pages], ['ISBN', b.isbn],
   ].filter(([, v]) => v);
 
@@ -420,6 +433,7 @@ function renderBook(id) {
       ${b.subtitle ? `<p class="subtitle">${esc(b.subtitle)}</p>` : ''}
       ${b.authors?.length ? `<div class="by">${esc(byLine(b))}</div>` : ''}
       ${translators.length ? `<p class="tr">Translated by ${esc(translators.join(' and '))}</p>` : ''}
+      ${b.firstYear ? `<p class="tr">First published ${b.firstYear < 0 ? `${-b.firstYear} BC` : b.firstYear}</p>` : ''}
       ${seriesRow}
     </section>
     ${readers}
@@ -680,11 +694,14 @@ function renderEdit(id) {
         <div class="fr"><label class="lbl" for="f-category">Category</label><select id="f-category" name="category">${isNew ? opt('', 'Choose…', b.category || '') : ''}${CATS.map((c) => opt(c, c, b.category)).join('')}</select></div>
         ${field('Series', 'seriesName', b.seriesName, 'list="dl-series"')}
         ${field('Volume', 'volume', b.volume, 'inputmode="decimal" style="max-width:120px"')}
+        <div class="fr"><label class="lbl" for="f-firstYear">First published</label>
+          <div class="fy"><input id="f-firstYear" name="firstYear" value="${esc(b.firstYear ?? '')}" autocomplete="off" inputmode="numeric" maxlength="4" style="max-width:120px">
+          <button type="button" class="tap" id="fyLook">Look up</button><span class="hint" id="fyNote" style="margin:0"></span></div></div>
       </section>
       <section class="block">
         <h2 class="disp">The edition</h2>
         ${field('Publisher', 'publisher', b.publisher, 'list="dl-pub"')}
-        ${field('Year', 'year', b.year, 'inputmode="numeric" maxlength="4" style="max-width:120px"')}
+        ${field('This edition', 'year', b.year, 'inputmode="numeric" maxlength="4" style="max-width:120px"')}
         <div class="fr"><label class="lbl" for="f-language">Language</label><select id="f-language" name="language">${opt('', '—', b.language || '')}${EDIT_LANGS.map(([k, l]) => opt(k, l, b.language)).join('')}${langKnown ? '' : opt(b.language, b.language, b.language)}</select></div>
         <div class="fr"><label class="lbl" for="f-format">Format</label><select id="f-format" name="format">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover'], ['physical', 'Other physical'], ['ebook', 'Ebook']].map(([k, l]) => opt(k, l, fmt)).join('')}</select></div>
         ${field('Pages', 'pages', b.pages, 'inputmode="numeric" style="max-width:120px"')}
@@ -733,7 +750,33 @@ function renderEdit(id) {
     inputs[inputs.length - 1]?.focus();
   });
   $('#editForm').addEventListener('submit', (e) => { e.preventDefault(); saveEdit(id); });
+  $('#fyLook').addEventListener('click', () => lookFirstYear(id, true));
   wireEditCover(id);
+  // A new book: look up when the work first came out, in the background.
+  if (isNew && b.title && !b.firstYear && !fyTried.has(b.isbn || b.title)) { fyTried.add(b.isbn || b.title); lookFirstYear(id, false); }
+}
+
+// First published: Open Library's year for the work, by ISBN or title + author.
+// Never later than this edition's year (Open Library sometimes only knows reprints).
+const fyTried = new Set();
+async function lookFirstYear(id, asked) {
+  const btn = $('#fyLook'), note = $('#fyNote');
+  if (!btn) return;
+  const isbn = toIsbn13(($('#f-isbn')?.value || '').replace(/[^0-9Xx]/g, ''));
+  const title = $('#f-title')?.value.trim();
+  const author = editDraft.get(id)?.find((p) => p.name && (p.role === 'author' || p.role === 'writer'))?.name;
+  if (!isbn && !title) { note.textContent = 'Needs a title or ISBN.'; return; }
+  btn.disabled = true; note.textContent = 'Looking…';
+  let r = null;
+  try { r = await firstPublished({ isbn, title, author }); } catch { /* shown below */ }
+  if (!$('#fyLook')) return; // left the form
+  btn.disabled = false;
+  const f = $('#f-firstYear'), ed = Number($('#f-year').value) || null;
+  if (!r) { note.textContent = asked ? 'Not found. Type it if you know it.' : ''; return; }
+  const y = ed && r.year > ed ? ed : r.year;
+  if (f.value.trim() && !asked) { note.textContent = ''; return; } // typed meanwhile
+  f.value = y;
+  note.textContent = `From ${r.source}${r.how === 'title' ? ', by title' : ''}`;
 }
 
 // --- Cover in the edit form ---------------------------------------------------------------
@@ -899,7 +942,11 @@ async function saveEdit(id) {
   const isbn = isbnRaw ? toIsbn13(isbnRaw) : null;
   if (isbnRaw && !isbn) { status('That ISBN doesn\'t look right (check the digits).'); $('#f-isbn').focus(); return; }
   const year = fd.year.trim() ? Number(fd.year) : null;
-  if (fd.year.trim() && !(year > 1400 && year <= new Date().getFullYear() + 1)) { status('Year should be four digits.'); $('#f-year').focus(); return; }
+  if (fd.year.trim() && !(year > 1400 && year <= new Date().getFullYear() + 1)) { status('The edition year should be four digits.'); $('#f-year').focus(); return; }
+  const fyRaw = (fd.firstYear || '').trim();
+  const firstYear = fyRaw ? Number(fyRaw) : null;
+  if (fyRaw && !(/^-?\d{1,4}$/.test(fyRaw) && firstYear <= new Date().getFullYear() + 1)) { status('First published should be a year.'); $('#f-firstYear').focus(); return; }
+  if (firstYear && year && firstYear > year) { status('First published is later than this edition.'); $('#f-firstYear').focus(); return; }
 
   // People: names cleaned up, each linked to an author record.
   const people = editDraft.get(id).map((p) => ({ role: p.role, name: fixName(p.name || '') })).filter((p) => p.name);
@@ -924,7 +971,7 @@ async function saveEdit(id) {
   let fields = {
     title, subtitle: fd.subtitle.trim() || null, category: fd.category,
     seriesId, seriesName: existingSeriesName(seriesId) || seriesName, volume: seriesName ? (fd.volume.trim() || null) : null,
-    publisher: fd.publisher.trim() || null, year, language: fd.language || null,
+    publisher: fd.publisher.trim() || null, year, firstYear, language: fd.language || null,
     format: fd.format === 'ebook' ? 'ebook' : 'physical', binding: ['paperback', 'hardcover'].includes(fd.format) ? fd.format : null,
     pages: Number(fd.pages) || null, isbn, editionNote: fd.editionNote.trim() || null, signed: $('#f-signed').checked,
     people, authors: main.map((p) => p.name),
