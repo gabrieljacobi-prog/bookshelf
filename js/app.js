@@ -3,7 +3,7 @@ import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, sa
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromFile } from './covers.js?v=1';
-import { findEditions, imageSearchUrl } from './editions.js?v=1';
+import { findEditions, imageSearchUrl } from './editions.js?v=2';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -621,7 +621,12 @@ function fixPanelHtml(b) {
   const eds = st.results || [];
   return `<div class="fixp ch12"><div class="ch12i">
     <h3>${!b.cover && !b.needsFix ? 'Find a cover' : 'Find the right edition'}</h3>
-    <p class="hint">Search other editions, look on Google Images (save the picture, then use Photo), or photograph your copy.</p>
+    <p class="hint">Search other editions, look on Google Images (save the picture, then use Photo), or photograph your copy. For books with many editions, add what's printed in your copy.</p>
+    <div class="refine">
+      <div class="fr"><label class="lbl" for="fx-pub">Publisher</label><input id="fx-pub" value="${esc(st.pub || '')}" placeholder="e.g. Penguin" autocomplete="off"></div>
+      <div class="fr"><label class="lbl" for="fx-year">Year</label><input id="fx-year" value="${esc(st.year || '')}" inputmode="numeric" maxlength="4" autocomplete="off"></div>
+      <div class="fr wide"><label class="lbl" for="fx-isbn">Or the ISBN from the copyright page</label><input id="fx-isbn" value="${esc(st.isbn || '')}" inputmode="numeric" autocomplete="off"></div>
+    </div>
     <div class="acts">
       <button class="btn-line ch8" data-fx="search"${st.loading || st.busy ? ' disabled' : ''}><span class="ch8i tap">${st.results ? 'Search again' : 'Search editions'}</span></button>
       <a class="btn-line ch8" href="${esc(imageSearchUrl(b))}" target="_blank" rel="noopener" style="height:44px;text-decoration:none"><span class="ch8i tap" style="padding:0 14px">Google Images</span></a>
@@ -685,12 +690,17 @@ function wireFixPanel(el, id) {
         try { await updateBook(id, { verified: true, needsFix: false }); finishFix(id, {}, 'Marked as checked.'); }
         catch (e) { toast('Couldn\'t save: ' + e.message); }
       } else if (act === 'search') {
-        setFix(id, { open: true, loading: true, pick: null, status: 'Looking for other editions…' });
-        const { editions, errors } = await findEditions(b);
+        const pub = $('#fx-pub').value.trim(), yr = $('#fx-year').value.trim(), isbn = $('#fx-isbn').value.trim();
+        const opts = { publisher: pub || null, year: /^\d{4}$/.test(yr) ? Number(yr) : null, isbn: isbn || null };
+        setFix(id, { open: true, loading: true, pick: null, pub, year: yr, isbn, status: isbn ? 'Looking up that ISBN…' : pub || yr ? 'Looking through the editions…' : 'Looking for other editions…' });
+        const { editions, errors, exact } = await findEditions(b, opts);
+        const what = [pub, yr].filter(Boolean).join(', ');
         setFix(id, {
-          loading: false, results: editions,
-          status: editions.length ? `${editions.length} edition${editions.length === 1 ? '' : 's'} with a cover. Tap the one that matches your copy.`
-            : `No other editions with a cover found${errors.length ? ` (${errors.join('; ')})` : ''}. Try Google Images or a photo.`,
+          loading: false, results: editions, pick: exact && editions.length === 1 ? 0 : null,
+          status: editions.length
+            ? (exact ? `Found that edition. ${editions.length > 1 ? 'Pick the best of its covers.' : 'Check the cover, then use it.'}`
+              : `${editions.length} edition${editions.length === 1 ? '' : 's'} with a cover${what ? ` matching ${what}` : ''}. Tap the one that matches your copy.`)
+            : `${exact || isbn ? 'Nothing found for that ISBN' : `No editions with a cover found${what ? ` matching ${what}` : ''}`}${errors.length ? ` (${errors.join('; ')})` : ''}. ${what ? 'Try without the year, or a shorter publisher name. ' : ''}Or try Google Images or a photo.`,
         });
       } else if (act === 'use' || act === 'coveronly') {
         const e = st.results?.[st.pick];

@@ -269,3 +269,7 @@ svg { display: block; flex: none; }
 .pr select { font-family: var(--label); font-size: 15px; letter-spacing: .05em; text-transform: lowercase; color: var(--muted); }
 .edit-acts { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 24px 20px 40px; }
 .edit-acts .cancel { display: flex; align-items: center; height: 44px; padding: 0 16px; color: var(--muted); text-decoration: none; }
+
+.fixp .refine { display: grid; grid-template-columns: minmax(0, 1fr) 96px; column-gap: 16px; margin-bottom: 14px; }
+.fixp .refine .wide { grid-column: 1 / -1; }
+.fixp .refine .fr input { font-size: 17px; height: 38px; }
