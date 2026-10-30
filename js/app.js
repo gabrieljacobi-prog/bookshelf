@@ -1,7 +1,8 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits } from './data.js?v=6';
-import { slug, sortName, fixName } from './import-clean.js?v=1';
-import { toIsbn13 } from './lookup.js?v=11';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits, newBookId, addBook } from './data.js?v=7';
+import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=1';
+import { toIsbn13, lookupAll } from './lookup.js?v=11';
+import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=1';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
 import { cropImage } from './crop.js?v=1';
 import { findEditions, imageSearchUrl } from './editions.js?v=3';
@@ -45,6 +46,7 @@ const I = {
   lend: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 12h13M12 7l5 5-5 5M20 5v14"/></svg>',
   navLib: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5 4v16M9.5 4v16M14 5.5l4.5 14.5M3 20h18"/></svg>',
   navAdd: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M7.5 12h9"/></svg>',
+  scan: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M3 8V5h3M18 5h3v3M21 16v3h-3M6 19H3v-3M7 8v8M9.5 8v8M12 8v8M15 8v8M17 8v8"/></svg>',
   navNext: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5v13"/></svg>',
 };
 
@@ -62,7 +64,7 @@ const fmtDate = (d) => {
   const x = new Date(d);
   return isNaN(x) ? d : x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, local
 const byLine = (b) => (b.authors || []).join(', ');
 const ARTICLE = /^(the|a|an|o|os|as|um|uma|en|ett|den|det|de|het|een|el|la|le|les|il)\s+/;
 const titleKey = (b) => norm(b.title).replace(ARTICLE, '');
@@ -645,12 +647,17 @@ const editDraft = new Map(); // bookId → people rows while editing
 
 function renderEdit(id) {
   const el = $('#book');
-  const b = S.books.get(id);
+  const isNew = id === NEW;
+  const b = bookOf(id);
+  const backHref = isNew ? '#/add' : `#/book/${esc(id)}`;
   if (!b || !isMember()) {
-    el.innerHTML = `<div class="book-top"><a class="back tap" href="#/book/${esc(id)}">${I.back}Book</a></div><p class="empty">${!b ? (S.loaded ? 'This book isn\'t in the library.' : 'Opening…') : 'Sign in from the library menu to edit books.'}</p>`;
+    el.innerHTML = `<div class="book-top"><a class="back tap" href="${backHref}">${I.back}${isNew ? 'Add book' : 'Book'}</a></div><p class="empty">${!isMember() ? `Sign in from the library menu to ${isNew ? 'add' : 'edit'} books.` : isNew ? 'Start from Add book.' : S.loaded ? 'This book isn\'t in the library.' : 'Opening…'}</p>`;
     return;
   }
-  if (!editDraft.has(id)) editDraft.set(id, (b.people || []).map((p) => ({ ...p })));
+  if (!editDraft.has(id)) {
+    const rows = (b.people || []).map((p) => ({ ...p }));
+    editDraft.set(id, rows.length || !isNew ? rows : [{ role: 'author', name: '' }]);
+  }
   const people = editDraft.get(id);
   const opt = (v, label, cur) => `<option value="${esc(v)}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${esc(label)}</option>`;
   const fmt = b.format === 'ebook' ? 'ebook' : b.binding || 'physical';
@@ -662,15 +669,15 @@ function renderEdit(id) {
     <div class="fr"><label class="lbl" for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value ?? '')}" autocomplete="off" ${extra}></div>`;
 
   el.innerHTML = `
-    <div class="book-top"><a class="back tap" href="#/book/${esc(id)}">${I.back}Cancel</a></div>
-    <header class="page-head"><h1 class="disp">Edit</h1><p>${esc(b.title)}</p></header>
+    <div class="book-top"><a class="back tap" href="${backHref}">${I.back}${isNew ? 'Back' : 'Cancel'}</a></div>
+    <header class="page-head"><h1 class="disp">${isNew ? 'Add' : 'Edit'}</h1><p>${isNew ? (b.title ? `Check what came with the ISBN against your copy, add what's missing, then Save.` : 'Fill in what\'s printed in your copy. Title and category are enough to start.') : esc(b.title)}</p></header>
     <form class="editf" id="editForm" novalidate>
       <section class="block" id="editCover">${editCoverHtml(b)}</section>
       <section class="block">
         <h2 class="disp">The book</h2>
         ${field('Title', 'title', b.title, 'required')}
         ${field('Subtitle', 'subtitle', b.subtitle)}
-        <div class="fr"><label class="lbl" for="f-category">Category</label><select id="f-category" name="category">${CATS.map((c) => opt(c, c, b.category)).join('')}</select></div>
+        <div class="fr"><label class="lbl" for="f-category">Category</label><select id="f-category" name="category">${isNew ? opt('', 'Choose…', b.category || '') : ''}${CATS.map((c) => opt(c, c, b.category)).join('')}</select></div>
         ${field('Series', 'seriesName', b.seriesName, 'list="dl-series"')}
         ${field('Volume', 'volume', b.volume, 'inputmode="decimal" style="max-width:120px"')}
       </section>
@@ -696,10 +703,14 @@ function renderEdit(id) {
         </div>
         <button type="button" class="btn-line ch8" id="addPerson" style="height:44px;margin-top:14px"><span class="ch8i tap" style="padding:0 16px">Add a person</span></button>
       </section>
+      ${isNew ? `<section class="block">
+        <h2 class="disp">Read by</h2>
+        ${READERS.map(([k, name]) => `<div class="fr check"><input type="checkbox" id="f-read-${k}" name="read-${k}"><label for="f-read-${k}">${name}</label></div>`).join('')}
+      </section>` : ''}
       <p class="status" id="editStatus" role="status" style="padding:0 20px;color:var(--accentText)"></p>
       <div class="edit-acts">
-        <a class="cancel tap" href="#/book/${esc(id)}">Cancel</a>
-        <button type="submit" class="btn-ink tap ch8" style="padding:0 30px">Save</button>
+        <a class="cancel tap" href="${backHref}">${isNew ? 'Back' : 'Cancel'}</a>
+        <button type="submit" class="btn-ink tap ch8" style="padding:0 30px">${isNew ? 'Add to the library' : 'Save'}</button>
       </div>
       <datalist id="dl-pub">${publishers.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
       <datalist id="dl-series">${seriesNames.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
@@ -747,14 +758,14 @@ function editCoverHtml(b) {
     <div class="ecov">
       <div class="cv">${preview}</div>
       <div class="side">
-        <div class="lbl">${st.pending ? 'New cover, saved with Save' : b.cover ? `From ${esc(b.cover.source || 'unknown')}` : 'No cover yet'}</div>
+        <div class="lbl">${st.pending ? (b.id === NEW ? `From ${esc(st.pending.source || 'a photo')}` : 'New cover, saved with Save') : b.cover ? `From ${esc(b.cover.source || 'unknown')}` : 'No cover yet'}</div>
         <div class="acts">
           <label class="btn-line ch8"><span class="ch8i tap">Photo</span><input type="file" accept="image/*" data-ec="photo" hidden></label>
           <button type="button" class="btn-line ch8" data-ec="search"${st.loading || st.busy ? ' disabled' : ''}><span class="ch8i tap">${st.results ? 'Search again' : 'Search editions'}</span></button>
-          <a class="btn-line ch8" href="${esc(imageSearchUrl(b))}" target="_blank" rel="noopener"><span class="ch8i tap">Google Images</span></a>
+          <a class="btn-line ch8" href="${esc(imageSearchUrl(b))}" target="_blank" rel="noopener" data-ec="gimg"><span class="ch8i tap">Google Images</span></a>
           ${c ? `<button type="button" class="btn-line ch8" data-ec="crop"${st.busy ? ' disabled' : ''}><span class="ch8i tap">Crop</span></button>` : ''}
         </div>
-        ${st.pending ? '<button type="button" class="ok tap" data-ec="keep">Keep the current cover</button>' : ''}
+        ${st.pending ? `<button type="button" class="ok tap" data-ec="keep">${b.id === NEW ? 'No cover for now' : 'Keep the current cover'}</button>` : ''}
       </div>
     </div>
     <p class="hint">Photo takes a picture or picks a saved image; you then drag its corners onto the cover's. Crop straightens the cover shown. Search editions uses the publisher and year below, if filled in.</p>
@@ -772,7 +783,7 @@ function editCoverHtml(b) {
 
 function renderEditCover(id) {
   const sec = $('#editCover');
-  const b = S.books.get(id);
+  const b = bookOf(id);
   if (!sec || !b) return;
   sec.innerHTML = editCoverHtml(b);
   observeCovers(sec);
@@ -787,7 +798,7 @@ function wireEditCover(id) {
   const sec = $('#editCover');
   if (!sec) return;
   observeCovers(sec);
-  const b = S.books.get(id);
+  const b = bookOf(id);
   sec.querySelector('[data-ec="photo"]')?.addEventListener('change', async (ev) => {
     const file = ev.target.files?.[0];
     ev.target.value = '';
@@ -813,13 +824,20 @@ function wireEditCover(id) {
       setCover(id, { busy: false, status: /cors|load/.test(e.message) ? 'This cover\'s source doesn\'t allow editing it here. Save it from Google Images and use Photo instead.' : 'Couldn\'t open the cover: ' + e.message });
     }
   });
-  sec.querySelector('[data-ec="keep"]')?.addEventListener('click', () => setCover(id, { pending: null, pick: null, status: null }));
+  // Google Images searches what's in the form now (it may have been typed since).
+  sec.querySelector('[data-ec="gimg"]')?.addEventListener('click', (ev) => {
+    const title = $('#f-title')?.value.trim() || b.title;
+    const author = editDraft.get(id)?.find((p) => p.name && (p.role === 'author' || p.role === 'writer'))?.name || b.authors?.[0];
+    ev.currentTarget.href = imageSearchUrl({ title, authors: author ? [author] : [] });
+  });
+    sec.querySelector('[data-ec="keep"]')?.addEventListener('click', () => setCover(id, { pending: null, pick: null, status: null }));
   sec.querySelector('[data-ec="search"]')?.addEventListener('click', async () => {
     const pub = $('#f-publisher').value.trim(), yr = $('#f-year').value.trim();
     const isbnTyped = $('#f-isbn').value.replace(/[^0-9Xx]/g, '');
     const newIsbn = isbnTyped && isbnTyped !== String(b.isbn || '').replace(/[^0-9Xx]/g, '') && toIsbn13(isbnTyped) !== b.isbn ? isbnTyped : null; // a newly typed ISBN = that exact edition
     const title = $('#f-title').value.trim() || b.title;
     const author = editDraft.get(id)?.find((p) => p.name && (p.role === 'author' || p.role === 'writer'))?.name || b.authors?.[0];
+    if (!title && !newIsbn) { setCover(id, { status: 'Type the title (or the ISBN) below first.' }); return; }
     const opts = newIsbn ? { isbn: newIsbn } : { publisher: pub || null, year: /^\d{4}$/.test(yr) ? Number(yr) : null };
     setCover(id, { loading: true, pick: null, status: newIsbn ? 'Looking up that ISBN…' : 'Looking for other editions…' });
     const { editions, errors, exact } = await findEditions({ ...b, title, authors: author ? [author] : [] }, opts);
@@ -849,6 +867,10 @@ function wireEditCover(id) {
     if (e.language && [...$('#f-language').options].some((o) => o.value === e.language)) $('#f-language').value = e.language;
     toast('Details filled in. Check them, then Save.');
   });
+  if (coverDraft.get(id)?.autoSearch) {
+    coverDraft.get(id).autoSearch = false;
+    sec.querySelector('[data-ec="search"]')?.click();
+  }
 }
 
 // Adding or removing a person re-renders the form; keep what was typed elsewhere.
@@ -860,17 +882,19 @@ function renderEditKeep(id) {
   for (const [k, v] of Object.entries(keptFields)) {
     const f = $(`#f-${k}`);
     if (!f) continue;
-    if (f.type === 'checkbox') f.checked = v === true; else f.value = v;
+    if (f.type === 'checkbox') f.checked = v === true || v === 'on'; else f.value = v;
   }
   keptFields = null;
 }
 
 async function saveEdit(id) {
-  const b = S.books.get(id);
+  const isNew = id === NEW;
+  const b = bookOf(id);
   const fd = Object.fromEntries(new FormData($('#editForm')).entries());
   const status = (s) => { $('#editStatus').textContent = s; };
   const title = fd.title.trim();
   if (!title) { status('A title is needed.'); $('#f-title').focus(); return; }
+  if (!fd.category) { status('Pick a category.'); $('#f-category').focus(); return; }
   const isbnRaw = fd.isbn.replace(/[^0-9Xx]/g, '');
   const isbn = isbnRaw ? toIsbn13(isbnRaw) : null;
   if (isbnRaw && !isbn) { status('That ISBN doesn\'t look right (check the digits).'); $('#f-isbn').focus(); return; }
@@ -914,6 +938,7 @@ async function saveEdit(id) {
     if (pending.mode === 'copied') newCover = pending;
     else fields.cover = { url: pending.url, w: pending.w, h: pending.h, source: pending.source };
   }
+  if (isNew) return saveNew(fields, newAuthors, newSeries, newCover, READERS.map(([k]) => k).filter((k) => $(`#f-read-${k}`)?.checked), status);
   status('Saving…');
   try {
     fields = await saveEdits(id, fields, newAuthors, newSeries, newCover);
@@ -928,13 +953,282 @@ async function saveEdit(id) {
 }
 const existingSeriesName = (sid) => (sid ? S.series.get(sid)?.name : null);
 
+// A new book: checked against the copy while adding, so it starts verified.
+async function saveNew(fields, newAuthors, newSeries, newCover, readBy, status) {
+  const id = newBookId();
+  fields = {
+    ...fields, cover: fields.cover || null, verified: true, needsFix: false, addedAt: today(),
+    description: null, sourceGenres: null, legacyId: null,
+  };
+  status('Adding…');
+  try {
+    fields = await addBook(id, fields, newAuthors, newSeries, newCover, readBy.length ? { readBy } : null);
+    for (const a of newAuthors) S.authors.set(a.id, a);
+    if (newSeries) S.series.set(newSeries.id, newSeries);
+    S.books.set(id, { id, ...fields });
+    if (readBy.length) S.priv.set(id, { ...(S.priv.get(id) || {}), readBy });
+    resetAdd();
+    location.hash = `#/book/${id}`;
+    toast('Added to the library.');
+  } catch (e) { status('Couldn\'t add it: ' + e.message); }
+}
+
+// --- Add a book ---------------------------------------------------------------------------
+// Scan (or photograph, or type) the ISBN → look it up → "Is this your copy?" →
+// the edit form, prefilled, for category, read by and anything missing → Save.
+// No ISBN: straight to the form. The book being added lives in ADD.draft under
+// the id NEW until it's saved and gets a real one.
+
+const NEW = 'new';
+const bookOf = (id) => (id === NEW ? ADD.draft : S.books.get(id));
+const freshAdd = () => ({ step: 'start', isbn: '', rec: null, pick: 0, dupes: null, msg: null, busy: false, draft: null });
+let ADD = freshAdd();
+let stopScan = null;
+
+function resetAdd() {
+  endScan();
+  ADD = freshAdd();
+  editDraft.delete(NEW);
+  coverDraft.delete(NEW);
+}
+function endScan() {
+  stopScan?.();
+  stopScan = null;
+  if (ADD.step === 'scanning') ADD.step = 'start';
+}
+
+// "Sebald, W. G." (library catalogues) → "W. G. Sebald"
+const flipName = (n) => {
+  const m = String(n).match(/^([^,]+),\s*([^,]+)$/);
+  return m && !/^(Jr|Sr)\.?$/.test(m[2].trim()) ? `${m[2].trim()} ${m[1].trim()}` : String(n);
+};
+
+// Shop-style titles: an imprint in brackets moves to the edition note
+// ("… (Penguin Classics)"), and ALL CAPS becomes title case.
+const IMPRINT = /classics|edition|paperback|hardcover|hardback|library|collection|series|vintage|penguin|books?$/i;
+function cleanTitle(raw) {
+  let title = String(raw || '').replace(/\s+/g, ' ').trim(), note = null;
+  const m = title.match(/^(.+?)\s*\(([^()]+)\)$/);
+  if (m && IMPRINT.test(m[2]) && !/#\s*\d/.test(m[2])) { title = m[1]; note = m[2].trim(); }
+  const t = splitTitle(title);
+  return { ...t, editionNote: t.editionNote || note };
+}
+
+function draftFrom(rec, isbn) {
+  const t = cleanTitle(rec?.title);
+  const pubs = [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))];
+  const pub = rec?.publisher ? pubs.find((x) => norm(x) === norm(rec.publisher)) || rec.publisher : null;
+  const people = (rec?.authors || []).map((n) => ({ role: 'author', name: fixName(flipName(n)) })).filter((p) => p.name);
+  return {
+    id: NEW, title: t.title, subtitle: rec?.subtitle || null, category: null,
+    seriesName: t.series, volume: t.volume, editionNote: t.editionNote,
+    publisher: pub, year: rec?.year ? Number(rec.year) || null : null, language: rec?.language || null,
+    pages: rec?.pages || null, isbn: isbn || null, format: 'physical', binding: null, signed: false,
+    people, authors: people.map((p) => p.name), cover: null,
+  };
+}
+
+// Same ISBN, or the same title with an author in common.
+function dupesFor(isbn, rec) {
+  const all = [...S.books.values()];
+  const same = all.filter((b) => isbn && b.isbn === isbn);
+  if (same.length) return { exact: true, books: same };
+  if (!rec?.title) return null;
+  const tk = titleKey({ title: cleanTitle(rec.title).title });
+  const names = new Set((rec.authors || []).map((n) => norm(fixName(flipName(n)))));
+  const like = all.filter((b) => titleKey(b) === tk && (!names.size || (b.authors || []).some((a) => names.has(norm(a)))));
+  return like.length ? { exact: false, books: like } : null;
+}
+
+function renderAdd() {
+  const el = $('#add');
+  if (!isMember()) {
+    el.innerHTML = `<header class="page-head" style="padding-top:28px"><h1 class="disp">Add a book</h1></header><p class="empty">Sign in from the library menu to add books.</p>`;
+    return;
+  }
+  const A = ADD;
+  const msg = A.msg ? `<p class="add-msg" role="status">${esc(A.msg)}</p>` : '';
+  if (A.step === 'start' || A.step === 'scanning') {
+    const scanning = A.step === 'scanning';
+    el.innerHTML = `
+      <header class="page-head" style="padding-top:28px"><h1 class="disp">Add a book</h1>
+        <p>Scan the barcode on the back. Older paperbacks often have it inside the front cover.</p></header>
+      <section class="scanbox">
+        <div class="scanv${scanning ? ' on' : ''}">
+          <video id="addVideo" playsinline muted></video>
+          ${scanning ? '<div class="guide" id="addGuide"></div>' : `<button class="scan-go" id="scanGo">${I.scan}<span class="tap">Scan the barcode</span></button>`}
+        </div>
+        ${scanning ? `<div class="scan-acts"><span class="lbl">Hold the barcode inside the band</span><button class="cancel tap" id="scanStop">Stop</button></div>` : ''}
+      </section>
+      ${msg}
+      <section class="add-alt">
+        <label class="btn-line ch8"><span class="ch8i tap">Photo of the barcode</span><input type="file" accept="image/*" capture="environment" id="barPhoto" hidden></label>
+        <form class="isbnf" id="isbnForm" novalidate>
+          <label class="lbl" for="addIsbn">Or type the ISBN</label>
+          <div class="row"><input id="addIsbn" inputmode="numeric" autocomplete="off" placeholder="978…" value="${esc(A.isbn)}"><button type="submit" class="btn-ink tap ch8">Look up</button></div>
+        </form>
+        <button class="ok tap" id="noIsbn">No ISBN? Fill it in by hand</button>
+      </section>`;
+    $('#scanGo')?.addEventListener('click', startAddScan);
+    $('#scanStop')?.addEventListener('click', () => { endScan(); renderAdd(); });
+    $('#barPhoto').addEventListener('change', async (ev) => {
+      const file = ev.target.files?.[0];
+      ev.target.value = '';
+      if (!file) return;
+      endScan();
+      ADD.msg = 'Reading the photo…';
+      renderAdd();
+      try {
+        const r = await isbnFromPhoto(file);
+        if (r && r !== 'price') { beep(true); lookupIsbn(r); return; }
+        beep(false);
+        ADD.msg = r === 'price' ? 'That\'s a price code, not the ISBN. Look for another barcode, often inside the front cover.' : 'No barcode found in the photo. Try closer, with the barcode sharp and level, or type the ISBN.';
+      } catch (e) { ADD.msg = 'Couldn\'t read the photo: ' + e.message; }
+      renderAdd();
+    });
+    $('#isbnForm').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const raw = $('#addIsbn').value;
+      const isbn = toIsbn13(raw);
+      ADD.isbn = raw;
+      if (!isbn) { ADD.msg = 'That ISBN doesn\'t look right. Check the digits (10 or 13, as printed).'; renderAdd(); $('#addIsbn').focus(); return; }
+      endScan();
+      lookupIsbn(isbn);
+    });
+    $('#noIsbn').addEventListener('click', () => toDetails(draftFrom(null, null), null));
+    return;
+  }
+
+  if (A.step === 'looking') {
+    el.innerHTML = `
+      <div class="page-top"><button class="back tap" id="addRestart">${I.back}Start over</button></div>
+      <header class="page-head"><h1 class="disp">Looking it up</h1><p>ISBN ${esc(A.isbn)}. Asking the libraries and booksellers…</p></header>`;
+    $('#addRestart').addEventListener('click', () => { resetAdd(); renderAdd(); });
+    return;
+  }
+
+  const dup = A.dupes ? `
+    <div class="fixp ch12 dup"><div class="ch12i">
+      <h3>${A.dupes.exact ? 'Already in the library' : 'A book with this title is already in the library'}</h3>
+      <div class="fix-list" style="margin:8px 0 0">${A.dupes.books.map((b) => `
+        <a class="fix-row" href="#/book/${esc(b.id)}"><span class="cv">${coverBox(b, 44, 66)}</span>
+          <span style="flex:1;min-width:0"><span class="tt" style="display:block">${esc(b.title)}</span><span class="sub" style="display:block">${esc([byLine(b), b.publisher, b.year].filter(Boolean).join(' · '))}</span></span>${I.right}</a>`).join('')}</div>
+      <p class="hint" style="margin:12px 0 0">${A.dupes.exact ? 'Adding it again makes a second copy.' : 'Check it isn\'t the same copy before adding it.'}</p>
+    </div></div>` : '';
+
+  if (A.step === 'notfound') {
+    el.innerHTML = `
+      <div class="page-top"><button class="back tap" id="addRestart">${I.back}Start over</button></div>
+      <header class="page-head"><h1 class="disp">Not found</h1><p>None of the sources know ISBN ${esc(A.isbn)}. You can still add it from what's printed in the copy, with a photo for the cover.</p></header>
+      ${dup}
+      <div class="add-acts">
+        <button class="btn-ink tap ch8" id="byHand">Fill it in by hand</button>
+        <button class="btn-line ch8" id="addRestart2"><span class="ch8i tap">Scan another</span></button>
+      </div>`;
+    $('#addRestart').addEventListener('click', () => { resetAdd(); renderAdd(); });
+    $('#addRestart2').addEventListener('click', () => { resetAdd(); renderAdd(); });
+    $('#byHand').addEventListener('click', () => toDetails(draftFrom(null, A.isbn), null));
+    observeCovers(el);
+    return;
+  }
+
+  // Found: "Is this your copy?"
+  const r = A.rec;
+  const covers = r.covers || [];
+  const cur = covers[A.pick];
+  const d = draftFrom(r, A.isbn);
+  const rows = [['Publisher', d.publisher], ['Year', d.year], ['Language', LANGS[d.language] || d.language], ['Pages', d.pages], ['ISBN', A.isbn]].filter(([, v]) => v);
+  el.innerHTML = `
+    <div class="page-top"><button class="back tap" id="addRestart">${I.back}Start over</button></div>
+    ${dup}
+    <section class="plinth addcov">
+      ${cur ? `<img src="${esc(cur.url)}" alt="Cover found for ${esc(d.title)}" referrerpolicy="no-referrer">`
+        : `<span class="cover ph" style="width:160px;height:240px" role="img" aria-label="No cover found"><span class="pa">${esc(byLine(d))}</span><span class="pt">${esc(d.title || 'No cover found')}</span></span>`}
+      <div class="line" aria-hidden="true"></div>
+      <div class="check lbl">${cur ? `Cover from ${esc(cur.source)}` : 'No cover found'}</div>
+      ${covers.length > 1 ? `<div class="covpick">${covers.map((c, i) => `<button data-cp="${i}" aria-pressed="${i === A.pick}" aria-label="Cover from ${esc(c.source)}"><img src="${esc(c.url)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('button').remove()"></button>`).join('')}</div>` : ''}
+    </section>
+    <div class="fixp ch12"><div class="ch12i q">
+      <span class="what">Is this your copy?</span>
+      <button class="btn-ink tap ch8" id="addYes" style="height:44px;padding:0 20px"${A.busy ? ' disabled' : ''}>Yes</button>
+      <button class="btn-line ch8" id="addNo" style="height:44px"${A.busy ? ' disabled' : ''}><span class="ch8i tap" style="padding:0 16px">Not my edition</span></button>
+      ${msg ? `<div style="flex-basis:100%">${msg}</div>` : ''}
+    </div></div>
+    <section class="intro">
+      <h1 class="disp${d.title.length > 22 ? ' long' : ''}">${esc(d.title || 'Untitled')}</h1>
+      ${d.subtitle ? `<p class="subtitle">${esc(d.subtitle)}</p>` : ''}
+      ${d.authors.length ? `<div class="by">${esc(byLine(d))}</div>` : ''}
+    </section>
+    <section class="block" style="padding-bottom:40px"><dl>${rows.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></section>`;
+  $('#addRestart').addEventListener('click', () => { resetAdd(); renderAdd(); });
+  el.querySelectorAll('[data-cp]').forEach((x) => x.addEventListener('click', () => { ADD.pick = Number(x.dataset.cp); renderAdd(); }));
+  $('#addYes').addEventListener('click', async () => {
+    let pending = null;
+    if (cur) {
+      ADD.busy = true; ADD.msg = 'Fetching the cover…'; renderAdd();
+      try { pending = await coverFromUrl(cur.url, cur.source); }
+      catch { pending = null; }
+      ADD.busy = false; ADD.msg = null;
+    }
+    toDetails(d, pending ? { pending } : null);
+    if (cur && !pending) toast('The cover wouldn\'t load. Pick one in the form.');
+  });
+  // The details usually belong to the scanned ISBN; it's the cover that's off.
+  // The form opens with the edition search already running.
+  $('#addNo').addEventListener('click', () => toDetails(d, { autoSearch: true }));
+  observeCovers(el);
+}
+
+function toDetails(draft, cover) {
+  endScan();
+  ADD.draft = draft;
+  editDraft.delete(NEW);
+  if (cover) coverDraft.set(NEW, cover); else coverDraft.delete(NEW);
+  location.hash = '#/add/details';
+}
+
+async function startAddScan() {
+  ADD.step = 'scanning';
+  ADD.msg = null;
+  renderAdd();
+  const video = $('#addVideo');
+  stopScan = await startScanner(video, {
+    onIsbn: (isbn) => {
+      stopScan = null;
+      beep(true);
+      $('#addGuide')?.classList.add('hit');
+      setTimeout(() => lookupIsbn(isbn), 250);
+    },
+    onNonIsbn: () => { beep(false); toast('That\'s a price code, not the ISBN. Look for another barcode, often inside the front cover.'); },
+    onError: (m) => { stopScan = null; ADD.step = 'start'; ADD.msg = m; renderAdd(); },
+  });
+  if (ADD.step !== 'scanning' || viewOf(location.hash) !== 'add') endScan(); // left while the camera was opening
+}
+
+async function lookupIsbn(isbn) {
+  ADD = { ...freshAdd(), step: 'looking', isbn };
+  renderAdd();
+  let merged = null;
+  try { ({ merged } = await lookupAll(isbn)); } catch { merged = null; }
+  if (ADD.step !== 'looking' || ADD.isbn !== isbn) return; // started over meanwhile
+  ADD.rec = merged;
+  ADD.step = merged?.title ? 'found' : 'notfound';
+  ADD.dupes = dupesFor(isbn, merged);
+  renderAdd();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && stopScan) { endScan(); if (viewOf(location.hash) === 'add') renderAdd(); }
+});
+
 // --- Routing --------------------------------------------------------------------------------
 
-const VIEWS = ['library', 'book', 'fix'];
+const VIEWS = ['library', 'book', 'fix', 'add'];
 function show(v) {
   for (const x of VIEWS) $('#' + x).hidden = x !== v;
 }
-const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix' : 'library');
+const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix'
+  : h.startsWith('#/add/details') ? 'adddetails' : h.startsWith('#/add') ? 'add' : 'library');
 
 let libScroll = 0;
 // The book page's back link returns to where the book was opened from.
@@ -945,10 +1239,17 @@ function route() {
   const v = viewOf(h);
   if (v === 'book' && lastView !== 'book' && lastView !== 'edit') {
     backTo = lastView === 'fix' ? { href: '#/fix', label: 'To fix' }
+      : lastView === 'adddetails' || lastView === 'add' ? { href: '#/add', label: 'Add another' }
       : { href: '#/', label: 'Library' };
   }
   lastView = v;
+  if (v !== 'add') endScan();
+  const adding = v === 'add' || v === 'adddetails';
+  $('#navLib')?.setAttribute('aria-current', adding ? 'false' : 'page');
+  $('#navAdd')?.setAttribute('aria-current', adding ? 'page' : 'false');
   if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
+  if (v === 'add') { show('add'); renderAdd(); window.scrollTo(0, 0); return; }
+  if (v === 'adddetails') { show('book'); renderEdit(NEW); window.scrollTo(0, 0); return; }
   if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
   if (v === 'book') { show('book'); editDraft.clear(); coverDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
   if (h.startsWith('#/wall')) { location.replace('#/fix'); return; } // old bookmarks
@@ -967,12 +1268,11 @@ window.addEventListener('hashchange', route);
 function start() {
   applyTheme();
   $('#nav').innerHTML = `
-    <a href="#/" aria-current="page" class="tap">${I.navLib}Library</a>
-    <button class="tap" id="navAdd">${I.navAdd}Add book</button>
+    <a href="#/" aria-current="page" class="tap" id="navLib">${I.navLib}Library</a>
+    <a href="#/add" class="tap" id="navAdd">${I.navAdd}Add book</a>
     <button class="tap" id="navNext">${I.navNext}Next read</button>`;
-  $('#navAdd').addEventListener('click', () => soon('Adding books'));
   $('#navNext').addEventListener('click', () => soon('Next read'));
-  $('#nav a').addEventListener('click', (e) => {
+  $('#navLib').addEventListener('click', (e) => {
     if (location.hash === '' || location.hash === '#/') { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   });
 
@@ -1025,6 +1325,8 @@ function rerender() {
   const v = viewOf(location.hash);
   const y = window.scrollY;
   if (v === 'edit') { if (!$('#editForm')) renderEdit(decodeURIComponent(location.hash.slice(7, -5))); }
+  else if (v === 'adddetails') { if (!$('#editForm')) renderEdit(NEW); }
+  else if (v === 'add') { if (ADD.step !== 'scanning') renderAdd(); } // don't cut the camera off
   else if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
   else if (v === 'fix') renderFixList();
   else renderLibrary();

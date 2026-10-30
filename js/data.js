@@ -166,3 +166,23 @@ export async function saveEdits(bookId, fields, newAuthors = [], newSeries = nul
   await b.commit();
   return fields;
 }
+
+// A new book (Add book): a fresh id, then the book, its cover docs, any new
+// author or series records and who has read it, all in one batch.
+export const newBookId = () => doc(collection(db, 'books')).id;
+
+export async function addBook(bookId, fields, newAuthors = [], newSeries = null, cover = null, priv = null) {
+  const b = writeBatch(db);
+  const v = Date.now();
+  if (cover) {
+    b.set(doc(db, 'covers', bookId), { image: cover.thumb, size: 'thumb', bookId, v });
+    b.set(doc(db, 'covers', bookId + '-l'), { image: cover.large, size: 'large', bookId, v });
+    fields = { ...fields, cover: { id: bookId, w: cover.w, h: cover.h, source: cover.source, v } };
+  }
+  b.set(doc(db, 'books', bookId), fields);
+  for (const a of newAuthors) { const { id, ...rest } = a; b.set(doc(db, 'authors', id), rest); }
+  if (newSeries) b.set(doc(db, 'series', newSeries.id), { name: newSeries.name });
+  if (priv) b.set(doc(db, 'private', bookId), priv, { merge: true });
+  await b.commit();
+  return fields;
+}
