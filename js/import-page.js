@@ -296,7 +296,7 @@ $('retry').onclick = async () => {
 let tidy = [];
 $('tidyLoad').onclick = async () => {
   $('tidyLoad').disabled = true;
-  const fixes = await (await fetch('title-fixes.json?v=1')).json();
+  const fixes = await (await fetch('title-fixes.json?v=2')).json();
   tidy = [];
   for (const f of fixes) {
     const snap = await getDoc(doc(db, 'books', f.id));
