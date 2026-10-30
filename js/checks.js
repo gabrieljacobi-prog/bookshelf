@@ -116,16 +116,21 @@ export function nearPublisher(name, publishers) {
 // --- Checks on one book ----------------------------------------------------------------
 
 const SMALL = new Set('a an and as at but by for from in into of on or the to with nor'.split(' '));
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-// "Stars In My Pocket Like Grains Of Sand" → "Stars in My Pocket Like Grains of Sand"
-function smallWords(title) {
-  let first = true;
+// "Stars In My Pocket Like Grains Of Sand" → "Stars in My Pocket Like Grains of Sand".
+// A capitalised "The" alone isn't a sign ("Paul Auster's The New York Trilogy"
+// names a title), so only prepositions and conjunctions count; once a title is
+// flagged, articles are lowered too, except after a possessive or punctuation.
+const ARTICLES = new Set(['the', 'a', 'an']);
+function smallWords(title, articles) {
+  let keep = true, prev = '';
   return title.split(/(\s+)/).map((w) => {
     if (/^\s+$/.test(w)) return w;
-    const out = !first && SMALL.has(w.toLowerCase()) ? w.toLowerCase() : w;
-    first = /[:—–-]$/.test(w);
-    return out;
+    const lw = w.toLowerCase();
+    const lower = !keep && SMALL.has(lw) && (!ARTICLES.has(lw) || (articles && !/['’]s$/.test(prev)));
+    keep = /[:;,—–-]$/.test(w);
+    prev = w;
+    return lower ? lw : w;
   }).join('');
 }
 
@@ -134,14 +139,32 @@ const SERIES_WORDS = /^(the )?(book|chronicles|saga|tales|cycle) of (the )?|\b(c
 const NOVEL_HINT = /\b(a novel|romance|roman|novela)\b/i;
 const ESSAY_HINT = /\b(essays?|memoirs?|letters|ensaios|a history|lectures?)\b/i;
 const FICTION_G = /fiction|novel|fantasy|short stor|thriller|crime|horror|romance|dystopian|space opera/i;
-const NONFICTION_G = /non-?fiction|essay|biograph|memoir|histor(y|ical)\b(?!.*fiction)|philosoph|popular science|criticism|literary studies|self-help|travel/i;
+// "Literary Criticism" and "Literary Studies" describe books *about* a novel,
+// which is how a novel often gets tagged; they only count towards non-fiction
+// for books filed as Non-fiction.
+const NONFICTION_G = /non-?fiction|essay|biograph|memoir|\bhistory\b(?!.*fiction)|philosoph|popular science|self-help|travel/i;
 
-// Context for checkBook, built once for the whole library.
+// Context for checkBook, built once for the whole library: the books in each
+// series, and books that look like they belong to a series they aren't in.
 export function checkContext(books) {
   const seriesBooks = new Map();
   for (const b of books) if (b.seriesId) { if (!seriesBooks.has(b.seriesId)) seriesBooks.set(b.seriesId, []); seriesBooks.get(b.seriesId).push(b); }
   const pubKeys = new Set(books.map((b) => pubKey(b.publisher)).filter(Boolean));
-  return { seriesBooks, pubKeys };
+  const missing = new Map(); // bookId → [seriesId]
+  const claimed = new Set(); // series some outside book seems to belong to
+  for (const [sid, list] of seriesBooks) {
+    const core = key((list[0].seriesName || '').replace(SERIES_WORDS, ' '));
+    if (core.length < 4) continue;
+    const authors = new Set(list.flatMap((x) => (x.people || []).filter(MAIN).map((p) => p.authorId)));
+    for (const b of books) {
+      if (b.seriesId === sid || !(b.people || []).some((p) => MAIN(p) && authors.has(p.authorId))) continue;
+      if (!key(b.title + ' ' + (b.subtitle || '')).includes(core)) continue;
+      if (!missing.has(b.id)) missing.set(b.id, []);
+      missing.get(b.id).push(sid);
+      claimed.add(sid);
+    }
+  }
+  return { seriesBooks, pubKeys, missing, claimed };
 }
 
 // What looks odd about one book: [{ code, msg, fix? }]. `fix` is the fields a
@@ -153,20 +176,18 @@ export function checkBook(b, cx) {
   const kt = key(title), ks = key(sub);
 
   // Title
-  let t2 = title.replace(/\s*\((re-?issue|reissue)\)/i, '').replace(/^(.*?),\s*(The|A|An)$/, '$2 $1')
+  const t2 = title.replace(/\s*\((re-?issue|reissue)\)/i, '').replace(/^(.*?),\s*(The|A|An)$/, '$2 $1')
     .replace(/^Great Ideas\s+/, '').replace(/([?!])\.$/, '$1').replace(/_/g, ' ').replace(/\s+:\s+/, ': ').trim();
   if (t2 !== title) push('title', 'The title has catalogue leftovers.', { title: t2 });
-  else if ((b.language || 'en') === 'en' && smallWords(title) !== title && title.split(/\s+/).length >= 4) {
-    push('caps', 'Every word in the title is capitalised.', { title: smallWords(title) });
+  else if ((b.language || 'en') === 'en' && smallWords(title, false) !== title && title.split(/\s+/).length >= 4) {
+    push('caps', 'Every word in the title is capitalised.', { title: smallWords(title, true) });
   }
 
-  // Subtitle
+  // Subtitle. The fix only ever clears the subtitle: whether "Grande Sertão:
+  // Veredas" is one title or a title and subtitle is for a person to say.
   if (sub) {
-    const parts = title.split(/\s*(?::| - | — )\s*/);
-    if (parts.length > 1 && key(parts.slice(1).join(' ')) === ks) {
-      push('sub-dup', 'The subtitle is repeated in the title.', { title: parts[0], subtitle: cap(title.slice(parts[0].length).replace(/^\s*(?::| - | — )\s*/, '')) });
-    } else if (ks === kt || (ks.length >= 4 && kt.includes(ks))) {
-      push('sub-dup', 'The subtitle repeats the title.', { subtitle: null });
+    if (ks === kt || (ks.length >= 4 && kt.includes(ks))) {
+      push('sub-dup', ks === kt ? 'The subtitle repeats the title.' : 'The subtitle is already in the title.', { subtitle: null });
     } else if (SHOP.test(sub) || /^[([].*[)\]]$/.test(sub)) {
       push('sub-shop', 'The subtitle looks like shop or catalogue text.', { subtitle: null });
     } else if (/\b(of|and|the|to|in|a)$/i.test(sub)) {
@@ -185,7 +206,9 @@ export function checkBook(b, cx) {
       continue;
     }
     if (cx.pubKeys.has(pubKey(n)) || /\b(publishing|books|studios?|editors|press|förlag|editora)\b/i.test(n)) push('company:' + p.authorId, `“${n}” looks like a publisher, not a person.`);
-    if (/(^|\s)(I{2,3}|IV)\s/.test(n) || /(\b\p{L}\.?\s+){3,}\p{Lu}[\p{Ll}]/u.test(n) || /(^|\s)(?!(?:Jr|Sr|St|Dr|Mr|Mrs)\.)\p{L}{3,}\.(\s|$)/u.test(n)) {
+    // "III JH Williams", "B. C. J. G Knight Stendhal" (an initial with no full
+    // stop before more names), "Ana Maria. Gonçalves"; not "E. T. A. Hoffmann".
+    if (/^(I{2,3}|IV)\s/.test(n) || /\s\p{Lu}\s+\p{Lu}\p{Ll}/u.test(n) ||/(^|\s)(?!(?:Jr|Sr|St|Dr|Mr|Mrs)\.)\p{L}{3,}\.(\s|$)/u.test(n)) {
       push('garbled:' + p.authorId, `“${n}” looks garbled.`);
     }
     if (!seen.has(p.authorId)) seen.set(p.authorId, new Set());
@@ -201,7 +224,7 @@ export function checkBook(b, cx) {
   const g = (b.sourceGenres || []).join(' | ');
   if (b.category === 'Non-fiction' && ((FICTION_G.test(g) && !NONFICTION_G.test(g)) || NOVEL_HINT.test(sub))) {
     push('cat', 'Filed as Non-fiction, but it sounds like fiction' + (g ? ` (sources: ${b.sourceGenres.slice(0, 2).join(', ')}).` : '.'), { category: 'Fiction' });
-  } else if (b.category === 'Fiction' && ((NONFICTION_G.test(g) && !FICTION_G.test(g)) || ESSAY_HINT.test(sub))) {
+  } else if (b.category === 'Fiction' && ((NONFICTION_G.test(g) && !FICTION_G.test(g) && !/criticism|literary studies/i.test(g)) || ESSAY_HINT.test(sub))) {
     push('cat', 'Filed as Fiction, but it sounds like non-fiction' + (g ? ` (sources: ${b.sourceGenres.slice(0, 2).join(', ')}).` : '.'), { category: 'Non-fiction' });
   }
 
@@ -215,17 +238,17 @@ export function checkBook(b, cx) {
   if (miss.length) push('missing', `No ${miss.join(' or ')}.`);
 
   // Series
-  const mine = new Set(people.filter(MAIN).map((p) => p.authorId));
-  for (const [sid, list] of cx.seriesBooks) {
-    if (sid === b.seriesId || list.length < 2) continue;
-    if (!list.some((x) => (x.people || []).some((p) => MAIN(p) && mine.has(p.authorId)))) continue;
-    const core = key((list[0].seriesName || '').replace(SERIES_WORDS, ' '));
-    if (core.length >= 4 && key(title + ' ' + sub).includes(core)) push('series-missing:' + sid, `Looks like part of “${list[0].seriesName}”, but isn’t in it.`);
+  for (const sid of cx.missing.get(b.id) || []) {
+    push('series-missing:' + sid, `Looks like part of “${cx.seriesBooks.get(sid)[0].seriesName}”, but isn’t in it.`);
   }
   if (b.seriesId) {
     const n = cx.seriesBooks.get(b.seriesId)?.length || 0;
-    if (n === 1 && key(b.seriesName) === kt) push('series-self', 'A series of one, named after the book.', { seriesId: null, seriesName: null, volume: null });
-    else if (n === 1 && /\b(trilogy|quartet|omnibus|complete)\b/i.test(title) && /^\d+$/.test(String(b.volume ?? ''))) push('series-omnibus', `Several volumes in one book, numbered as volume ${b.volume}.`);
+    const range = /[–-]/.test(String(b.volume ?? ''));
+    if (n === 1 && !range && !cx.claimed.has(b.seriesId) && key(fold(b.seriesName)) === kt) {
+      push('series-self', 'The only book in a series named after itself.', { seriesId: null, seriesName: null, volume: null });
+    } else if (n === 1 && /\b(trilogy|quartet|omnibus|complete)\b/i.test(title) && /^\d+$/.test(String(b.volume ?? ''))) {
+      push('series-omnibus', `Several volumes in one book, numbered as volume ${b.volume}.`);
+    }
   }
   return out;
 }
