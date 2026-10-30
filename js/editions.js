@@ -14,6 +14,20 @@ async function getJson(url, ms = 12000) {
 }
 
 const enc = encodeURIComponent;
+
+// Google answers bursts and an empty daily quota with 429/503: wait and retry,
+// then try once without the key (a separate, shared allowance).
+async function googleJson(url) {
+  for (let i = 0; i < 3; i++) {
+    try { return await getJson(`${url}&key=${firebaseConfig.apiKey}`); }
+    catch (e) {
+      if (!/HTTP (429|503)/.test(e.message)) throw e;
+      if (i < 2) await new Promise((r) => setTimeout(r, 1200 * 2 ** i));
+    }
+  }
+  try { return await getJson(url); }
+  catch (e) { throw new Error(/HTTP 429/.test(e.message) ? 'busy or out of its daily allowance, try again later' : e.message); }
+}
 const year = (s) => String(s || '').match(/\d{4}/)?.[0] || null;
 
 async function openLibrary(title, author, { publisher, year: wantYear } = {}) {
@@ -51,7 +65,7 @@ async function openLibrary(title, author, { publisher, year: wantYear } = {}) {
 
 async function googleBooks(title, author, { publisher } = {}) {
   const q = `intitle:"${title}"${author ? ` inauthor:"${author}"` : ''}${publisher ? ` inpublisher:"${publisher}"` : ''}`;
-  const data = await getJson(`https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=30&key=${firebaseConfig.apiKey}`);
+  const data = await googleJson(`https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=30`);
   return (data.items || []).map((i) => i.volumeInfo).filter((v) => v.imageLinks?.thumbnail).map((v) => {
     const img = v.imageLinks.thumbnail.replace('http://', 'https://').replace('&edge=curl', '');
     const ids = v.industryIdentifiers || [];

@@ -3,7 +3,7 @@ import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, sa
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromFile } from './covers.js?v=1';
-import { findEditions, imageSearchUrl } from './editions.js?v=2';
+import { findEditions, imageSearchUrl } from './editions.js?v=3';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
