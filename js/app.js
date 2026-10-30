@@ -155,7 +155,7 @@ function renderLibrary() {
     ${isMember() && (unverified || fixN) && !S.reviewHidden ? `
     <div class="review">
       <button id="reviewGo"><span class="dot"></span><span class="what">${unverified ? `${unverified} book${unverified === 1 ? '' : 's'} to check` : `${fixN} book${fixN === 1 ? '' : 's'} to fix`}</span><span class="tap go">${unverified ? 'Cover wall' : 'To fix'}</span></button>
-      <button class="x icon-btn" id="hideReview" aria-label="Hide until next import">${I.x}</button>
+      <button class="x icon-btn" id="hideReview" aria-label="Hide (the menu brings it back)">${I.x}</button>
     </div>` : ''}
     <div class="sticky grain" id="sticky">
       <div class="compact"><div style="display:flex;align-items:baseline;gap:8px"><span class="n disp">${n}</span><span class="lbl">Books</span></div><h1 class="disp">Library</h1></div>
@@ -218,6 +218,11 @@ function renderToolbar() {
         <div class="mh lbl">Account</div>
         ${u ? `<div class="note" style="border-top:0">Signed in as ${esc(u.member ? READERS.find(([k]) => k === u.member)[1] : u.email)}${u.member ? '' : '. This account can only browse.'}</div><button data-act="signout">Sign out</button>`
           : '<button data-act="signin">Sign in</button>'}
+        ${isMember() ? `
+        <div class="mh lbl">Checking books</div>
+        <button data-go="#/wall">Cover wall</button>
+        <button data-go="#/fix">To fix</button>
+        ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
         <div class="mh lbl">Temporary tools</div>
         <a href="import/" class="tool">Import</a>
         <a href="scan/" class="tool">Scanner test</a>
@@ -313,6 +318,8 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.cols) { S.cols = Number(t.dataset.cols); store.set('cols', String(S.cols)); renderToolbar(); renderList(); return; }
   if (t.dataset.act === 'signin') { S.open = null; renderToolbar(); signIn().catch((err) => toast(err.message)); return; }
   if (t.dataset.act === 'signout') { S.open = null; signOutUser(); return; }
+  if (t.dataset.go) { S.open = null; location.hash = t.dataset.go; return; }
+  if (t.dataset.act === 'showReview') { S.open = null; S.reviewHidden = false; store.set('reviewHidden', ''); renderLibrary(); return; }
   if (S.open && !t.closest('.menu')) { S.open = null; renderToolbar(); }
 });
 
