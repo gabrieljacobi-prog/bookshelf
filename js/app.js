@@ -1,6 +1,7 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits, newBookId, addBook } from './data.js?v=7';
-import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=1';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=8';
+import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=2';
+import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=2';
 import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=12';
 import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=2';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
@@ -153,14 +154,16 @@ function renderLibrary() {
   const el = $('#library');
   const n = S.books.size;
   const fixN = toFix().length;
+  const oddN = S.loaded && isMember() ? looksOdd().length : 0;
+  const barText = [fixN && `${fixN} book${fixN === 1 ? '' : 's'} to fix`, oddN && `${oddN}${fixN ? '' : ` book${oddN === 1 ? '' : 's'}`} look${oddN === 1 ? 's' : ''} odd`].filter(Boolean).join(' · ');
   el.innerHTML = `
     <header class="hero">
       <div><div class="count disp">${S.loaded ? n : '&nbsp;'}</div><div class="lbl" style="margin-top:8px">Books</div></div>
       <h1 class="disp">Library</h1>
     </header>
-    ${isMember() && fixN && !S.reviewHidden ? `
+    ${isMember() && barText && !S.reviewHidden ? `
     <div class="review">
-      <button id="reviewGo"><span class="dot"></span><span class="what">${fixN} book${fixN === 1 ? '' : 's'} to fix</span><span class="tap go">To fix</span></button>
+      <button id="reviewGo"><span class="dot"></span><span class="what">${barText}</span><span class="tap go">To fix</span></button>
       <button class="x icon-btn" id="hideReview" aria-label="Hide (the menu brings it back)">${I.x}</button>
     </div>` : ''}
     <div class="sticky grain" id="sticky">
@@ -227,6 +230,7 @@ function renderToolbar() {
         ${isMember() ? `
         <div class="mh lbl">Checking books</div>
         <button data-go="#/fix">To fix</button>
+        <button data-go="#/names">People &amp; publishers</button>
         ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
         <div class="mh lbl">Temporary tools</div>
         <a href="import/" class="tool">Import</a>
@@ -494,7 +498,47 @@ function renderBook(id) {
 
 const toFix = () => [...S.books.values()].filter((b) => b.needsFix || !b.cover);
 
+// Books whose record looks odd (js/checks.js), leaving out the ones still waiting
+// for their edition or cover: those get looked at anyway. Worked out again only
+// when the catalogue changes.
+let oddMemo = null;
+function looksOdd() {
+  if (oddMemo?.books === S.books && oddMemo.n === oddMemo.books.size && !oddMemo.dirty) return oddMemo.list;
+  const all = [...S.books.values()];
+  const cx = checkContext(all);
+  const list = all.filter((b) => !b.needsFix && b.cover).map((b) => ({ b, issues: checkBook(b, cx) })).filter((x) => x.issues.length);
+  oddMemo = { books: S.books, n: S.books.size, list, dirty: false };
+  return list;
+}
+// Edits change books in place, so the checks are worked out again on every
+// page change and redraw (a few milliseconds for the whole library).
+const oddChanged = () => { if (oddMemo) oddMemo.dirty = true; if (mergeMemo) mergeMemo.dirty = true; };
+let mergeMemo = null;
+function mergeCount() {
+  if (mergeMemo?.books === S.books && mergeMemo.authors === S.authors && !mergeMemo.dirty) return mergeMemo.n;
+  const books = [...S.books.values()];
+  const n = peopleGroups(books, [...S.authors.values()]).length + publisherGroups(books).length + (unusedAuthors(books, [...S.authors.values()]).length ? 1 : 0);
+  mergeMemo = { books: S.books, authors: S.authors, n, dirty: false };
+  return n;
+}
+
 // --- To fix ----------------------------------------------------------------------------------
+
+// A name or title quoted on a button keeps its own case (button text is lowercase small caps).
+const q = (s) => `<span class="v">“${esc(s)}”</span>`;
+
+// What a one-tap fix button says (HTML).
+function fixLabel(i) {
+  const f = i.fix;
+  if ('title' in f) return `Use ${q(f.title)}`;
+  if ('subtitle' in f) return 'Clear the subtitle';
+  if ('category' in f) return `Make it ${f.category}`;
+  if ('format' in f) return 'Mark as printed';
+  if ('pages' in f) return 'Clear the pages';
+  if ('seriesId' in f) return 'Take it out of the series';
+  if ('people' in f) return 'Remove the placeholder';
+  return 'Fix';
+}
 
 function renderFixList() {
   const el = $('#fix');
@@ -505,20 +549,200 @@ function renderFixList() {
   const all = toFix().sort(compare('Author'));
   const wrong = all.filter((b) => b.needsFix);
   const noCover = all.filter((b) => !b.needsFix && !b.cover);
+  const odd = looksOdd().slice().sort((x, y) => compare('Author')(x.b, y.b));
+  const merges = mergeCount();
+  const sub = (b) => esc([byLine(b), b.publisher, b.year].filter(Boolean).join(' · '));
   const row = (b) => `
     <a class="fix-row" href="#/book/${esc(b.id)}">
       <span class="cv">${coverBox(b, 44, 66)}</span>
-      <span style="flex:1;min-width:0"><span class="tt" style="display:block">${esc(b.title)}</span><span class="sub" style="display:block">${esc([byLine(b), b.publisher, b.year].filter(Boolean).join(' · '))}</span></span>
+      <span style="flex:1;min-width:0"><span class="tt" style="display:block">${esc(b.title)}</span><span class="sub" style="display:block">${sub(b)}</span></span>
       ${I.right}
     </a>`;
+  const oddRow = ({ b, issues }) => `
+    <div class="fix-row odd" data-odd="${esc(b.id)}">
+      <a class="cv" href="#/book/${esc(b.id)}" aria-hidden="true" tabindex="-1">${coverBox(b, 44, 66)}</a>
+      <div style="flex:1;min-width:0">
+        <a class="tt" href="#/book/${esc(b.id)}">${esc(b.title)}</a><span class="sub" style="display:block">${sub(b)}</span>
+        <ul class="issues">${issues.map((i, n) => `<li><span>${esc(i.msg)}</span>${i.fix ? `<button class="tap fixbtn" data-fix="${n}">${fixLabel(i)}</button>` : ''}</li>`).join('')}</ul>
+        <div class="odd-acts"><a class="tap" href="#/book/${esc(b.id)}/edit">Edit</a><button class="tap" data-fine="1">It’s fine</button></div>
+      </div>
+    </div>`;
+  const nothing = !all.length && !odd.length;
   el.innerHTML = `
     <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
     <header class="page-head"><h1 class="disp">To fix</h1>
-      <p>${all.length ? 'Open a book to find the right edition, pick another cover, or take a photo of yours.' : 'Nothing to fix.'}</p></header>
-    ${wrong.length ? `<div class="section-head" style="padding-top:12px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
+      <p>${nothing ? 'Nothing to fix.' : 'Open a book to find the right edition, pick another cover, or take a photo of yours.'}</p></header>
+    ${merges ? `<div class="fix-list" style="margin-top:4px"><a class="fix-row" href="#/names"><span style="flex:1;min-width:0"><span class="tt" style="display:block">People &amp; publishers</span><span class="sub" style="display:block">${merges} to tidy up</span></span>${I.right}</a></div>` : ''}
+    ${wrong.length ? `<div class="section-head" style="padding-top:${merges ? 40 : 12}px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
     ${noCover.length ? `<div class="section-head"><span class="name">No cover</span><span class="of">${noCover.length}</span></div><div class="fix-list">${noCover.map(row).join('')}</div>` : ''}
+    ${odd.length ? `<div class="section-head"><span class="name">Looks odd</span><span class="of">${odd.length}</span></div>
+      <p class="sec-hint">Things in the details that look like mistakes from the old app or a book source. Fix them here, in Edit, or tap It’s fine.</p>
+      <div class="fix-list">${odd.map(oddRow).join('')}</div>` : ''}
     <div style="height:40px"></div>`;
   observeCovers(el);
+  el.querySelectorAll('[data-odd]').forEach((r) => {
+    const id = r.dataset.odd;
+    const entry = () => looksOdd().find((x) => x.b.id === id);
+    r.querySelectorAll('[data-fix]').forEach((btn) => btn.addEventListener('click', () => {
+      const issue = entry()?.issues[Number(btn.dataset.fix)];
+      if (issue) fixOdd(id, issue.fix, 'Fixed.');
+    }));
+    r.querySelector('[data-fine]').addEventListener('click', () => {
+      const b = S.books.get(id);
+      const codes = (entry()?.issues || []).map((i) => i.code);
+      fixOdd(id, { oddOk: [...new Set([...(b.oddOk || []), ...codes])] }, 'Left as it is.');
+    });
+  });
+}
+
+// One-tap fixes and "It's fine": written at once, the list redrawn, the scroll kept.
+async function fixOdd(id, fields, msg) {
+  const b = S.books.get(id);
+  const before = Object.fromEntries(Object.keys(fields).map((k) => [k, b[k]]));
+  Object.assign(b, fields);
+  oddChanged();
+  const y = window.scrollY;
+  renderFixList();
+  window.scrollTo(0, y);
+  try { await updateBook(id, fields); toast(msg); }
+  catch (e) { Object.assign(b, before); oddChanged(); renderFixList(); window.scrollTo(0, y); toast('Couldn\'t save: ' + e.message); }
+}
+
+// --- People & publishers: spellings of the same name, merged in one go ---------------------
+
+const mergeState = new Map(); // group key → { pick, typed, out: Set, busy }
+
+function renderNames() {
+  const el = $('#names');
+  const back = `<div class="page-top"><a class="back tap" href="#/fix">${I.back}To fix</a></div>`;
+  if (!isMember()) { el.innerHTML = back + '<p class="empty">Sign in from the library menu to merge names.</p>'; return; }
+  if (!S.loaded) { el.innerHTML = back + '<p class="empty">Opening…</p>'; return; }
+  const books = [...S.books.values()];
+  const authors = [...S.authors.values()];
+  const pg = peopleGroups(books, authors);
+  const pubs = publisherGroups(books);
+  const unused = unusedAuthors(books, authors);
+  const st = (k, first) => { if (!mergeState.has(k)) mergeState.set(k, { pick: first, typed: '', out: new Set(), busy: false }); return mergeState.get(k); };
+  let ci = 0;
+  const card = (k, kind, variants) => {
+    const s = st(k, variants[0].name);
+    const c = ci++;
+    const live = variants.filter((v) => !s.out.has(v.name));
+    if (!live.some((v) => v.name === s.pick)) s.pick = live[0]?.name;
+    const target = s.typed.trim() || s.pick;
+    const n = new Set(live.filter((v) => v.name !== target).flatMap((v) => [...v.books])).size;
+    return `
+      <div class="mcard" data-mk="${esc(k)}" data-kind="${kind}">
+        ${variants.map((v) => {
+          const out = s.out.has(v.name);
+          return `<div class="mv${out ? ' out' : ''}">
+            <label><input type="radio" name="m-${c}" value="${esc(v.name)}"${!s.typed.trim() && v.name === s.pick ? ' checked' : ''}${out ? ' disabled' : ''}>
+              <span class="nm">${esc(v.name)}</span><span class="lbl">${v.books.size ?? v.books.length} book${(v.books.size ?? v.books.length) === 1 ? '' : 's'}</span></label>
+            ${variants.length > 2 || out ? `<button class="tap" data-out="${esc(v.name)}">${out ? 'Put back' : 'Leave out'}</button>` : ''}
+          </div>`;
+        }).join('')}
+        <div class="fr"><label class="lbl" for="mt-${c}">Or type the right spelling</label><input id="mt-${c}" data-typed="1" value="${esc(s.typed)}" autocomplete="off"></div>
+        <div class="macts"><button class="btn-line ch8" data-merge="1"${s.busy || live.length < 2 && !s.typed.trim() ? ' disabled' : ''}><span class="ch8i tap">${s.busy ? 'Merging…' : `Use ${q(target)}${n ? ` on ${n} book${n === 1 ? '' : 's'}` : ''}`}</span></button></div>
+      </div>`;
+  };
+  const pk = (g) => 'p:' + g.map((v) => v.name).join('|');
+  const bk = (g) => 'b:' + g.map((v) => v.name).join('|');
+  el.innerHTML = `
+    ${back}
+    <header class="page-head"><h1 class="disp">People &amp; publishers</h1>
+      <p>${pg.length || pubs.length || unused.length ? 'The same name spelled in different ways. Pick the spelling to keep; every book gets it.' : 'Every name is spelled one way.'}</p></header>
+    ${pg.length ? `<div class="section-head" style="padding-top:12px"><span class="name">People</span><span class="of">${pg.length}</span></div>
+      <div class="mlist">${pg.map((g) => card(pk(g), 'people', g)).join('')}</div>` : ''}
+    ${pubs.length ? `<div class="section-head"><span class="name">Publishers</span><span class="of">${pubs.length}</span></div>
+      <p class="sec-hint">Imprints are separate publishers: leave out a spelling that isn’t the same one (Penguin Press isn’t Penguin Books).</p>
+      <div class="mlist">${pubs.map((g) => card(bk(g), 'pub', g)).join('')}</div>` : ''}
+    ${unused.length ? `<div class="section-head"><span class="name">Not on any book</span><span class="of">${unused.length}</span></div>
+      <p class="sec-hint">${esc(unused.map((a) => a.name).join(', '))}. Left over from edits.</p>
+      <div style="padding:0 20px"><button class="btn-line ch8" id="dropUnused" style="height:44px"><span class="ch8i tap" style="padding:0 16px">Remove ${unused.length === 1 ? 'it' : `these ${unused.length}`}</span></button></div>` : ''}
+    <div style="height:40px"></div>`;
+
+  el.querySelectorAll('.mcard').forEach((c) => {
+    const k = c.dataset.mk;
+    const s = mergeState.get(k);
+    const g = (c.dataset.kind === 'people' ? pg.find((x) => pk(x) === k) : pubs.find((x) => bk(x) === k));
+    c.querySelectorAll('input[type=radio]').forEach((r) => r.addEventListener('change', () => { s.pick = r.value; s.typed = ''; rerenderNames(); }));
+    c.querySelector('[data-typed]').addEventListener('change', (e) => { s.typed = e.target.value; rerenderNames(); });
+    c.querySelectorAll('[data-out]').forEach((x) => x.addEventListener('click', () => {
+      const n = x.dataset.out;
+      s.out.has(n) ? s.out.delete(n) : s.out.add(n);
+      rerenderNames();
+    }));
+    c.querySelector('[data-merge]').addEventListener('click', async () => {
+      s.typed = c.querySelector('[data-typed]').value;
+      const target = s.typed.trim() || s.pick;
+      const live = g.filter((v) => !s.out.has(v.name));
+      if (!target || !live.length) return;
+      s.busy = true; rerenderNames();
+      try {
+        const n = c.dataset.kind === 'people' ? await mergePeople(live, target) : await mergePublishers(live, target);
+        mergeState.delete(k);
+        toast(`Done: ${n} book${n === 1 ? '' : 's'} now say “${target}”.`);
+      } catch (e) { s.busy = false; toast('Couldn\'t merge: ' + e.message); }
+      rerenderNames();
+    });
+  });
+  $('#dropUnused')?.addEventListener('click', async () => {
+    try {
+      await applyOps(unused.map((a) => ({ op: 'delete', col: 'authors', id: a.id })));
+      for (const a of unused) S.authors.delete(a.id);
+      S.authors = new Map(S.authors);
+      toast('Removed.');
+    } catch (e) { toast('Couldn\'t remove: ' + e.message); }
+    rerenderNames();
+  });
+}
+function rerenderNames() { const y = window.scrollY; renderNames(); window.scrollTo(0, y); }
+
+const isMain = (p) => p.role === 'author' || p.role === 'writer';
+
+// Every book naming any of these spellings gets `name`, linked to one author
+// record (one already called that, else the most-used one's); the other
+// records are removed. Returns how many books changed.
+async function mergePeople(variants, name) {
+  const names = new Set(variants.map((v) => v.name));
+  const ids = new Set(variants.flatMap((v) => [...v.ids]));
+  const recs = [...ids].map((id) => S.authors.get(id)).filter(Boolean);
+  const keep = recs.find((a) => a.name === name) || recs.find((a) => a.name === variants[0].name) || recs[0];
+  const tid = keep?.id || slug(name);
+  const { id: _, ...base } = keep || { nationality: null, gender: null, checked: false, source: null };
+  const rec = { ...base, name, sortName: keep?.name === name ? keep.sortName : sortName(name) };
+  const ops = [{ op: 'set', col: 'authors', id: tid, data: rec }];
+  for (const a of recs) if (a.id !== tid) ops.push({ op: 'delete', col: 'authors', id: a.id });
+  const changed = [];
+  let n = 0;
+  for (const b of S.books.values()) {
+    const hit = (b.people || []).filter((p) => ids.has(p.authorId) || names.has(p.name));
+    if (!hit.length) continue;
+    if (hit.some((p) => p.name !== name || p.authorId !== tid)) n++;
+    const seen = new Set();
+    const people = b.people.map((p) => (ids.has(p.authorId) || names.has(p.name) ? { ...p, name, authorId: tid } : p))
+      .filter((p) => { const k2 = p.role + '|' + p.authorId; if (seen.has(k2)) return false; seen.add(k2); return true; });
+    const main = people.filter(isMain);
+    const fields = { people, authors: main.map((p) => p.name), authorSort: main.length ? (main[0].authorId === tid ? rec.sortName : b.authorSort) : '' };
+    ops.push({ op: 'update', col: 'books', id: b.id, data: fields });
+    changed.push([b, fields]);
+  }
+  await applyOps(ops);
+  for (const a of recs) S.authors.delete(a.id);
+  S.authors.set(tid, { id: tid, ...rec });
+  S.authors = new Map(S.authors);
+  for (const [b, f] of changed) Object.assign(b, f);
+  S.books = new Map(S.books);
+  return n;
+}
+
+async function mergePublishers(variants, name) {
+  const names = new Set(variants.map((v) => v.name));
+  const list = [...S.books.values()].filter((b) => names.has(b.publisher) && b.publisher !== name);
+  await applyOps(list.map((b) => ({ op: 'update', col: 'books', id: b.id, data: { publisher: name } })));
+  for (const b of list) b.publisher = name;
+  S.books = new Map(S.books);
+  return list.length;
 }
 
 // --- Fix panel (book page) -------------------------------------------------------------------
@@ -950,6 +1174,26 @@ async function saveEdit(id) {
 
   // People: names cleaned up, each linked to an author record.
   const people = editDraft.get(id).map((p) => ({ role: p.role, name: fixName(p.name || '') })).filter((p) => p.name);
+
+  // A person or publisher spelled close to one already in the library, but not
+  // the same: ask before a second spelling goes in (the suggestion lists alone
+  // don't stop that, and Firefox on Android barely shows them).
+  const allAuthors = [...S.authors.values()];
+  for (const p of people) {
+    const near = nearOk.has(nameKey(p.name)) ? null : nearPerson(p.name, allAuthors);
+    if (near) {
+      return askNear(id, `“${p.name}” is close to “${near}”, who’s already in the library.`, near, nameKey(p.name), () => {
+        const row = editDraft.get(id).find((r) => fixName(r.name || '') === p.name);
+        if (row) row.name = near;
+      });
+    }
+  }
+  const pubTyped = fd.publisher.trim();
+  const nearPub = nearOk.has('pub:' + nameKey(pubTyped)) ? null
+    : nearPublisher(pubTyped, [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))]);
+  if (nearPub) {
+    return askNear(id, `“${pubTyped}” is close to “${nearPub}”, already on other books.`, nearPub, 'pub:' + nameKey(pubTyped), () => { $('#f-publisher').value = nearPub; });
+  }
   const newAuthors = [];
   for (const p of people) {
     const existing = [...S.authors.values()].find((a) => norm(a.name) === norm(p.name));
@@ -999,6 +1243,18 @@ async function saveEdit(id) {
   } catch (e) { status('Couldn\'t save: ' + e.message); }
 }
 const existingSeriesName = (sid) => (sid ? S.series.get(sid)?.name : null);
+
+// Spellings kept on purpose after the question below, for this visit.
+const nearOk = new Set();
+function askNear(id, msg, near, k, useNear) {
+  const st = $('#editStatus');
+  st.innerHTML = `<span class="near">${esc(msg)}</span><span class="near-acts">
+    <button type="button" class="btn-line ch8" id="nearUse"><span class="ch8i tap">Use ${q(near)}</span></button>
+    <button type="button" class="tap keep" id="nearKeep">Keep mine</button></span>`;
+  $('#nearUse').addEventListener('click', () => { useNear(); saveEdit(id); });
+  $('#nearKeep').addEventListener('click', () => { nearOk.add(k); saveEdit(id); });
+  st.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
 
 // A new book: checked against the copy while adding, so it starts verified.
 async function saveNew(fields, newAuthors, newSeries, newCover, readBy, status) {
@@ -1362,37 +1618,49 @@ document.addEventListener('visibilitychange', () => {
 
 // --- Routing --------------------------------------------------------------------------------
 
-const VIEWS = ['library', 'book', 'fix', 'add'];
+const VIEWS = ['library', 'book', 'fix', 'add', 'names'];
 function show(v) {
   for (const x of VIEWS) $('#' + x).hidden = x !== v;
 }
-const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix'
+const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix' : h.startsWith('#/names') ? 'names'
   : h.startsWith('#/add/details') ? 'adddetails' : h.startsWith('#/add') ? 'add' : 'library');
 
-let libScroll = 0;
+let libScroll = 0, fixScroll = 0;
 // The book page's back link returns to where the book was opened from.
 let backTo = { href: '#/', label: 'Library' };
 let lastView = 'library';
 function route() {
+  oddChanged();
   const h = location.hash;
   const v = viewOf(h);
+  // Edit opened straight from To fix ("Looks odd"): after saving, the book's back link returns there.
+  if (v === 'edit' && lastView === 'fix') backTo = { href: '#/fix', label: 'To fix' };
   if (v === 'book' && lastView !== 'book' && lastView !== 'edit') {
     backTo = lastView === 'fix' ? { href: '#/fix', label: 'To fix' }
       : lastView === 'adddetails' || lastView === 'add' ? { href: '#/add', label: 'Add another' }
       : { href: '#/', label: 'Library' };
   }
+  const prevView = lastView;
   lastView = v;
   if (v !== 'add') endScan();
   const adding = v === 'add' || v === 'adddetails';
   $('#navLib')?.setAttribute('aria-current', adding ? 'false' : 'page');
   $('#navAdd')?.setAttribute('aria-current', adding ? 'page' : 'false');
   if (!$('#library').hidden && v !== 'library') libScroll = window.scrollY;
+  if (!$('#fix').hidden && v !== 'fix') fixScroll = window.scrollY;
+  const fromList = ['book', 'edit', 'names'].includes(prevView);
   if (v === 'add') { show('add'); renderAdd(); window.scrollTo(0, 0); return; }
   if (v === 'adddetails') { show('book'); renderEdit(NEW); window.scrollTo(0, 0); return; }
   if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
   if (v === 'book') { show('book'); editDraft.clear(); coverDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
   if (h.startsWith('#/wall')) { location.replace('#/fix'); return; } // old bookmarks
-  if (v === 'fix') { show('fix'); renderFixList(); window.scrollTo(0, 0); return; }
+  if (v === 'fix') {
+    show('fix'); renderFixList();
+    // Back from a book opened in the list: return to where it was.
+    requestAnimationFrame(() => window.scrollTo(0, fromList ? fixScroll : 0));
+    return;
+  }
+  if (v === 'names') { show('names'); renderNames(); window.scrollTo(0, 0); return; }
   // "#/?q=…" opens the library searching (used by the series row).
   const q = h.match(/[?&]q=([^&]*)/);
   if (q) { S.q = decodeURIComponent(q[1]); S.searching = true; S.cat = 'All'; libScroll = 0; }
@@ -1461,6 +1729,7 @@ function liveRerender() {
 }
 
 function rerender() {
+  oddChanged();
   const v = viewOf(location.hash);
   const y = window.scrollY;
   if (v === 'edit') { if (!$('#editForm')) renderEdit(decodeURIComponent(location.hash.slice(7, -5))); }
@@ -1468,6 +1737,7 @@ function rerender() {
   else if (v === 'add') { if (ADD.step !== 'scanning') renderAdd(); } // don't cut the camera off
   else if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
   else if (v === 'fix') renderFixList();
+  else if (v === 'names') renderNames();
   else renderLibrary();
   window.scrollTo(0, y);
 }

@@ -139,6 +139,21 @@ export async function updateBooks(updates) {
   }
 }
 
+// Mixed writes ([{ op: 'update' | 'set' | 'delete', col, id, data }]), for merging
+// people and publishers, in batches under Firestore's 500-write limit.
+export async function applyOps(ops) {
+  for (let i = 0; i < ops.length; i += 450) {
+    const b = writeBatch(db);
+    for (const o of ops.slice(i, i + 450)) {
+      const ref = doc(db, o.col, o.id);
+      if (o.op === 'delete') b.delete(ref);
+      else if (o.op === 'set') b.set(ref, o.data);
+      else b.update(ref, o.data);
+    }
+    await b.commit();
+  }
+}
+
 // A new cover copied into Firestore: thumb + large, and the book's cover field.
 export async function saveCover(bookId, { thumb, large, w, h, source }, extra = {}) {
   const v = Date.now();

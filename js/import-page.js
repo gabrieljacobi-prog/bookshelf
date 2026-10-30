@@ -6,7 +6,7 @@ import {
 import { firebaseConfig } from './firebase-config.js?v=3';
 import { lookupAll, firstPublished } from './lookup.js?v=12';
 
-import { cleanExport } from './import-clean.js?v=1';
+import { cleanExport } from './import-clean.js?v=2';
 
 const MEMBERS = ['gabriel.jacobi@gmail.com', 'ingrid.skare@gmail.com'];
 const app = initializeApp(firebaseConfig);

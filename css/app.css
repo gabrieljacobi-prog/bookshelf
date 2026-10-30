@@ -333,3 +333,40 @@ button.back { background: none; border: 0; color: var(--ink); }
 .sform .acts { display: flex; justify-content: flex-end; padding-top: 18px; }
 .sres { margin: 22px 20px 0; }
 .sres .t { font-size: 13px; line-height: 1.22; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* --- Looks odd (To fix) and People & publishers ----------------------------------------- */
+
+.sec-hint { margin: -6px 20px 14px; font-size: 14px; color: var(--muted); }
+.fix-row.odd { align-items: flex-start; }
+.fix-row.odd .cv { text-decoration: none; }
+.fix-row.odd a.tt { display: block; text-decoration: none; }
+.issues { margin: 8px 0 0; padding: 0; list-style: none; }
+.issues li { padding: 6px 0; font-size: 15px; line-height: 1.35; font-style: italic; }
+.issues li + li { border-top: 1px dotted var(--rule); }
+.issues .fixbtn { display: block; max-width: 100%; min-height: 36px; margin: 2px 0 0; padding: 0; background: none; border: 0;
+  color: var(--accentText); text-align: left; white-space: normal; font-style: normal; }
+.odd-acts { display: flex; gap: 22px; margin-top: 4px; }
+.odd-acts a, .odd-acts button { display: flex; align-items: center; min-height: 40px; padding: 0; background: none; border: 0; color: var(--muted); text-decoration: none; }
+
+.mlist { margin: 0 20px; border-bottom: 1px solid var(--rule); }
+.mcard { padding: 14px 0 16px; border-top: 1px solid var(--rule); }
+.mv { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.mv label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.mv input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+.mv .nm { flex: 1; min-width: 0; font-size: 17px; overflow-wrap: anywhere; }
+.mv.out .nm, .mv.out .lbl { opacity: .45; text-decoration: line-through; }
+.mv button { flex: none; min-height: 40px; padding: 0 0 0 6px; background: none; border: 0; color: var(--muted); }
+.mcard .fr { padding-top: 6px; }
+.mcard .fr input { font-size: 17px; height: 38px; }
+.macts { margin-top: 14px; }
+.macts .btn-line { height: 44px; max-width: 100%; }
+.macts .btn-line > span { padding: 0 14px; white-space: normal; text-align: center; line-height: 1.2; }
+.macts .btn-line:disabled { opacity: .5; cursor: default; }
+
+/* Edit form: a name close to one already in the library */
+#editStatus .near { display: block; font-style: italic; }
+#editStatus .near-acts { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 10px; }
+#editStatus .near-acts .btn-line { height: 44px; }
+#editStatus .near-acts .btn-line > span { padding: 0 14px; }
+#editStatus .keep { min-height: 44px; padding: 0; background: none; border: 0; color: var(--muted); }
+.tap .v { text-transform: none; font-family: var(--text); font-weight: 400; letter-spacing: 0; font-size: 16px; }

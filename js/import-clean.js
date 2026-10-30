@@ -36,8 +36,10 @@ export function parseCsv(text) {
 
 // --- Small helpers ------------------------------------------------------------
 
+// Letters NFKD can't take apart: "Stanisław" → "stanislaw", not "stanis-aw".
+const FOLD = { ł: 'l', Ł: 'L', ø: 'o', Ø: 'O', đ: 'd', Đ: 'D', ß: 'ss', æ: 'ae', Æ: 'Ae', œ: 'oe', Œ: 'Oe', ı: 'i', þ: 'th', Þ: 'Th' };
 export function slug(s) {
-  const base = String(s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const base = String(s).replace(/[łŁøØđĐßæÆœŒıþÞ]/g, (c) => FOLD[c]).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
   if (base) return base;
   // Japanese and other non-Latin names: a short stable hash instead.
