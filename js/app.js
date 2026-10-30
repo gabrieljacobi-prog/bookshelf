@@ -1,5 +1,5 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits } from './data.js?v=5';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits } from './data.js?v=6';
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
@@ -978,21 +978,47 @@ function start() {
 
   route();
 
-  loadCatalogue((books, authors, series) => {
+  watchCatalogue((books, authors, series) => {
+    const first = !S.loaded;
     S.books = books; S.authors = authors; S.series = series; S.loaded = true;
-    rerender();
-  }).catch((e) => toast('Couldn\'t load the library: ' + e.message));
+    first ? rerender() : liveRerender();
+  }, (e) => toast('Couldn\'t load the library: ' + e.message));
 
-  onUser(async (u) => {
+  let stopPrivate = null;
+  onUser((u) => {
     S.user = u;
     if (!u?.member) { S.read = 'any'; S.lent = false; }
+    stopPrivate?.(); stopPrivate = null;
     S.priv = new Map();
     rerender();
     if (u?.member) {
-      try { S.priv = await loadPrivate(); rerender(); }
-      catch (e) { toast('Couldn\'t load read status: ' + e.message); }
+      let first = true;
+      stopPrivate = watchPrivate((priv) => {
+        S.priv = priv;
+        // The grid shows no read status or loans, so it only redraws for them
+        // when a Read by / Lent out filter is on.
+        const v = viewOf(location.hash);
+        if (first || v !== 'library' || S.read !== 'any' || S.lent) first ? rerender() : liveRerender();
+        first = false;
+      }, (e) => toast('Couldn\'t load read status: ' + e.message));
     }
   });
+}
+
+// A change from the other phone. Wait while something is being typed (a lend
+// name, a fix-panel field) so the field isn't wiped; redraw once it's left.
+let livePending = false, liveTimer = null;
+function liveRerender() {
+  const a = document.activeElement;
+  if (a && a !== document.body && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) {
+    if (!livePending) {
+      livePending = true;
+      a.addEventListener('blur', () => { livePending = false; setTimeout(liveRerender, 0); }, { once: true });
+    }
+    return;
+  }
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(rerender, 150);
 }
 
 function rerender() {

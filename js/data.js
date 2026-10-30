@@ -1,6 +1,7 @@
 // Firebase setup and every read/write the app makes.
 // Firestore keeps a local copy on the phone, so the library opens from cache
-// and then refreshes from the server.
+// and then refreshes from the server; after that the app listens live, so a
+// change made on the other phone shows up without a reload.
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import {
@@ -8,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, getDocs, getDocsFromCache, getDoc, getDocFromCache, setDoc, updateDoc, writeBatch,
+  collection, doc, getDocs, getDocsFromCache, getDoc, onSnapshot, getDocFromCache, setDoc, updateDoc, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
 
@@ -46,19 +47,32 @@ export const signOutUser = () => signOut(auth);
 
 const toMap = (snap) => new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
 
-// Calls onData once from the local cache (if any) and again from the server.
-export async function loadCatalogue(onData) {
+// Calls onData(books, authors, series, { fromCache }) as soon as all three are
+// there (first from the phone's cache, if any), then again whenever any of them
+// changes, on this phone or another. Snapshots of this phone's own unconfirmed
+// writes are skipped: the app has already applied those itself.
+export function watchCatalogue(onData, onError) {
   const names = ['books', 'authors', 'series'];
-  try {
-    const cached = await Promise.all(names.map((n) => getDocsFromCache(collection(db, n))));
-    if (cached[0].size) onData(...cached.map(toMap), { fromCache: true });
-  } catch { /* no cache yet */ }
-  const fresh = await Promise.all(names.map((n) => getDocs(collection(db, n))));
-  onData(...fresh.map(toMap), { fromCache: false });
+  const maps = [null, null, null];
+  const fromCache = [true, true, true];
+  const unsubs = names.map((n, i) => onSnapshot(collection(db, n), (snap) => {
+    const first = !maps[i];
+    if (!first && snap.metadata.hasPendingWrites) return;
+    maps[i] = toMap(snap);
+    fromCache[i] = snap.metadata.fromCache;
+    if (maps.every(Boolean)) onData(...maps, { fromCache: fromCache.some(Boolean) });
+  }, onError));
+  return () => unsubs.forEach((u) => u());
 }
 
-export async function loadPrivate() {
-  return toMap(await getDocs(collection(db, 'private')));
+// Read status, loans and notes (members only), live like the catalogue.
+export function watchPrivate(onData, onError) {
+  let seen = false;
+  return onSnapshot(collection(db, 'private'), (snap) => {
+    if (seen && snap.metadata.hasPendingWrites) return;
+    seen = true;
+    onData(toMap(snap));
+  }, onError);
 }
 
 // Cover images: thumb for the grid, large ("-l") for the book page.
