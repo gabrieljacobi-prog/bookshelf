@@ -16,6 +16,8 @@ const S = {
   books: new Map(), authors: new Map(), series: new Map(), priv: new Map(),
   loaded: false, user: null,
   cat: 'All', sort: 'Author', q: '', searching: false, open: null,
+  read: 'any', lent: false, // member-only filters
+  theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
   cols: store.get('cols', '3') === '4' ? 4 : 3,
   reviewHidden: store.get('reviewHidden', '') === '1',
 };
@@ -61,6 +63,39 @@ const ARTICLE = /^(the|a|an|o|os|as|um|uma|en|ett|den|det|de|het|een|el|la|le|le
 const titleKey = (b) => norm(b.title).replace(ARTICLE, '');
 const volNum = (v) => parseFloat(String(v ?? '').replace(/–.*/, '')) || 0;
 const isMember = () => !!S.user?.member;
+
+const READ_FILTERS = [['any', 'Anyone'], ['flor', 'Flor'], ['ingrid', 'Ingrid'], ['both', 'Both'], ['neither', 'Neither']];
+function passesFilters(b) {
+  if (S.cat !== 'All' && b.category !== S.cat) return false;
+  if (!isMember()) return true;
+  const p = S.priv.get(b.id) || {};
+  const r = p.readBy || [];
+  if (S.read === 'flor' && !r.includes('flor')) return false;
+  if (S.read === 'ingrid' && !r.includes('ingrid')) return false;
+  if (S.read === 'both' && !(r.includes('flor') && r.includes('ingrid'))) return false;
+  if (S.read === 'neither' && r.length) return false;
+  if (S.lent && !p.lentTo) return false;
+  return true;
+}
+function filterLabel() {
+  const parts = [];
+  if (S.cat !== 'All') parts.push(S.cat);
+  if (isMember() && S.read !== 'any') parts.push(S.read === 'neither' ? 'Unread' : S.read === 'both' ? 'Read by both' : `Read by ${S.read === 'flor' ? 'Flor' : 'Ingrid'}`);
+  if (isMember() && S.lent) parts.push('Lent out');
+  return parts.join(' · ') || 'All';
+}
+const otherFilters = () => isMember() && (S.read !== 'any' || S.lent);
+
+function applyTheme() {
+  const root = document.documentElement;
+  if (S.theme === 'system') delete root.dataset.theme; else root.dataset.theme = S.theme;
+  const dark = S.theme === 'dark' || (S.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    m.removeAttribute('media');
+    m.content = dark ? '#2E2B29' : '#EAE5DA';
+  });
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
 
 function compare(sort) {
   const author = (b) => norm(b.authorSort) || '￿';
@@ -149,8 +184,16 @@ function renderToolbar() {
   const u = S.user;
   tb.innerHTML = `
     <div class="dd">
-      <button class="tap" data-open="cat" aria-haspopup="true" aria-expanded="${S.open === 'cat'}" aria-label="Category: ${esc(S.cat)}"><span class="cur">${esc(S.cat)}</span>${I.chev}</button>
-      ${S.open === 'cat' ? `<div class="menu" role="menu" aria-label="Category">${items([['All'], ...CATS.map((c) => [c])], S.cat, 'cat')}</div>` : ''}
+      <button class="tap" data-open="cat" aria-haspopup="true" aria-expanded="${S.open === 'cat'}" aria-label="Show: ${esc(filterLabel())}"><span class="cur">${esc(filterLabel())}</span>${I.chev}</button>
+      ${S.open === 'cat' ? `<div class="menu" role="menu" aria-label="Show">
+        <div class="mh lbl">Category</div>
+        ${items([['All'], ...CATS.map((c) => [c])], S.cat, 'cat')}
+        ${isMember() ? `
+        <div class="mh lbl">Read by</div>
+        ${READ_FILTERS.map(([k, label]) => `<button role="menuitemradio" aria-checked="${S.read === k}" data-rf="${k}">${label}${S.read === k ? I.check : ''}</button>`).join('')}
+        <div class="mh lbl">Loans</div>
+        <button role="menuitemcheckbox" aria-checked="${S.lent}" data-lentf="1">Lent out${S.lent ? I.check : ''}</button>` : ''}
+      </div>` : ''}
     </div>
     <span class="sep" aria-hidden="true"></span>
     <div class="dd">
@@ -162,11 +205,16 @@ function renderToolbar() {
     <div class="dd">
       <button class="icon-btn" data-open="menu" aria-haspopup="true" aria-expanded="${S.open === 'menu'}" aria-label="Menu">${I.menu}</button>
       ${S.open === 'menu' ? `<div class="menu right" role="menu">
-        <button data-act="cols">${S.cols === 3 ? 'Four across' : 'Three across'}</button>
-        ${u ? `<div class="note">Signed in as ${esc(u.member ? READERS.find(([k]) => k === u.member)[1] : u.email)}${u.member ? '' : '. This account can only browse.'}</div><button data-act="signout">Sign out</button>`
+        <div class="mh lbl">Books per row</div>
+        ${[[3, 'Three'], [4, 'Four']].map(([n, l]) => `<button role="menuitemradio" aria-checked="${S.cols === n}" data-cols="${n}">${l}${S.cols === n ? I.check : ''}</button>`).join('')}
+        <div class="mh lbl">Theme</div>
+        ${[['system', 'Same as phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button role="menuitemradio" aria-checked="${S.theme === k}" data-theme-pick="${k}">${l}${S.theme === k ? I.check : ''}</button>`).join('')}
+        <div class="mh lbl">Account</div>
+        ${u ? `<div class="note" style="border-top:0">Signed in as ${esc(u.member ? READERS.find(([k]) => k === u.member)[1] : u.email)}${u.member ? '' : '. This account can only browse.'}</div><button data-act="signout">Sign out</button>`
           : '<button data-act="signin">Sign in</button>'}
-        <a href="import/">Import tools</a>
-        <a href="scan/">Scanner test</a>
+        <div class="mh lbl">Temporary tools</div>
+        <a href="import/" class="tool">Import</a>
+        <a href="scan/" class="tool">Scanner test</a>
       </div>` : ''}
     </div>`;
 }
@@ -181,29 +229,31 @@ function renderList() {
     : '--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;');
   const tokens = norm(S.q).split(/\s+/).filter(Boolean);
   const cmp = compare(S.sort);
-  const books = [...S.books.values()].filter((b) => (S.cat === 'All' || b.category === S.cat) && matches(b, tokens));
+  const books = [...S.books.values()].filter((b) => passesFilters(b) && matches(b, tokens)).sort(cmp);
   if (!books.length) {
-    list.innerHTML = `<p class="empty">${tokens.length ? 'Nothing on the shelves matches that.' : 'No books here yet.'}</p>`;
+    list.innerHTML = `<p class="empty">${tokens.length || otherFilters() || S.cat !== 'All' ? 'Nothing on the shelves matches that.' : 'No books here yet.'}</p>`;
     return;
   }
-  // Numbered sections are always the four categories, so "03 Comics" means the
-  // same thing whatever the filter or sort.
-  const html = CATS.map((cat, i) => {
-    const inCat = books.filter((b) => b.category === cat).sort(cmp);
-    if (!inCat.length) return '';
-    const rows = [];
-    for (let j = 0; j < inCat.length; j += m.n) rows.push(inCat.slice(j, j + m.n));
-    return `
-      <section class="section">
-        <div class="section-head"><span class="num disp">${String(i + 1).padStart(2, '0')}</span><span class="name">${cat}</span><span class="of">${inCat.length}</span></div>
-        <div class="rows">${rows.map((row) => `
-          <div>
-            <div class="shelf">${row.map((b) => `<a href="#/book/${esc(b.id)}" aria-label="${esc(b.title)}${b.authors?.length ? ' by ' + esc(byLine(b)) : ''}">${coverBox(b, m.W, m.H)}</a>`).join('')}</div>
-            <div class="caps">${row.map((b) => `<a href="#/book/${esc(b.id)}" tabindex="-1" aria-hidden="true"><div class="t">${esc(b.title)}</div><div class="a">${esc(byLine(b))}</div></a>`).join('')}</div>
-          </div>`).join('')}
-        </div>
-      </section>`;
-  }).join('');
+  const rows = [];
+  for (let j = 0; j < books.length; j += m.n) rows.push(books.slice(j, j + m.n));
+  // A category gets its numbered heading ("03 Comics"); "All" is one continuous
+  // shelf, so a sort like Recently added mixes the categories.
+  const ci = CATS.indexOf(S.cat);
+  const filtered = ci >= 0 || otherFilters() || tokens.length;
+  const head = ci >= 0
+    ? `<div class="section-head"><span class="num disp">${String(ci + 1).padStart(2, '0')}</span><span class="name">${esc(filterLabel())}</span><span class="of">${books.length}</span></div>`
+    : filtered ? `<div class="section-head"><span class="name">${esc(tokens.length ? 'Search results' : filterLabel())}</span><span class="of">${books.length}</span></div>`
+    : '<div style="height:24px"></div>';
+  const html = `
+    <section class="section">
+      ${head}
+      <div class="rows">${rows.map((row) => `
+        <div>
+          <div class="shelf">${row.map((b) => `<a href="#/book/${esc(b.id)}" aria-label="${esc(b.title)}${b.authors?.length ? ' by ' + esc(byLine(b)) : ''}">${coverBox(b, m.W, m.H)}</a>`).join('')}</div>
+          <div class="caps">${row.map((b) => `<a href="#/book/${esc(b.id)}" tabindex="-1" aria-hidden="true"><div class="t">${esc(b.title)}</div><div class="a">${esc(byLine(b))}</div></a>`).join('')}</div>
+        </div>`).join('')}
+      </div>
+    </section>`;
   list.innerHTML = html;
   observeCovers(list);
 }
@@ -246,11 +296,15 @@ document.addEventListener('click', async (e) => {
     if (S.open && !e.target.closest('.menu')) { S.open = null; renderToolbar(); }
     return;
   }
+  if (t.tagName === 'A' && t.closest('.menu')) { S.open = null; return; }
   if (t.dataset.open) { S.open = S.open === t.dataset.open ? null : t.dataset.open; renderToolbar(); return; }
-  if (t.dataset.cat) { S.cat = t.dataset.cat; S.open = null; renderToolbar(); renderList(); window.scrollTo(0, 0); return; }
+  if (t.dataset.cat) { S.cat = t.dataset.cat; renderToolbar(); renderList(); return; }
+  if (t.dataset.rf) { S.read = t.dataset.rf; renderToolbar(); renderList(); return; }
+  if (t.dataset.lentf) { S.lent = !S.lent; renderToolbar(); renderList(); return; }
+  if (t.dataset.themePick) { S.theme = t.dataset.themePick; store.set('theme', S.theme); applyTheme(); renderToolbar(); return; }
   if (t.dataset.sort) { S.sort = t.dataset.sort; S.open = null; renderToolbar(); renderList(); return; }
   if (t.id === 'openSearch') { S.searching = true; S.open = null; renderToolbar(); return; }
-  if (t.dataset.act === 'cols') { S.cols = S.cols === 3 ? 4 : 3; store.set('cols', String(S.cols)); S.open = null; renderToolbar(); renderList(); return; }
+  if (t.dataset.cols) { S.cols = Number(t.dataset.cols); store.set('cols', String(S.cols)); renderToolbar(); renderList(); return; }
   if (t.dataset.act === 'signin') { S.open = null; renderToolbar(); signIn().catch((err) => toast(err.message)); return; }
   if (t.dataset.act === 'signout') { S.open = null; signOutUser(); return; }
   if (S.open && !t.closest('.menu')) { S.open = null; renderToolbar(); }
@@ -434,6 +488,7 @@ window.addEventListener('hashchange', route);
 // --- Start ------------------------------------------------------------------------------------
 
 function start() {
+  applyTheme();
   $('#nav').innerHTML = `
     <a href="#/" aria-current="page" class="tap">${I.navLib}Library</a>
     <button class="tap" id="navAdd">${I.navAdd}Add book</button>
@@ -454,6 +509,7 @@ function start() {
 
   onUser(async (u) => {
     S.user = u;
+    if (!u?.member) { S.read = 'any'; S.lent = false; }
     S.priv = new Map();
     rerender();
     if (u?.member) {
