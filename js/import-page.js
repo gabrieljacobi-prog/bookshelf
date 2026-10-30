@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp, query, where,
+  getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp, query, where, getDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
 import { lookupAll } from './lookup.js?v=11';
@@ -68,6 +68,7 @@ $('file').onchange = async (e) => {
 function refreshGo() {
   $('go').disabled = !(user && data);
   $('retry').disabled = !user;
+  $('tidyLoad').disabled = !user;
 }
 
 // --- Covers -----------------------------------------------------------------------
@@ -286,6 +287,44 @@ $('retry').onclick = async () => {
     rstatus('Stopped: ' + e.message);
   }
   $('retry').disabled = false;
+};
+
+// --- 7. Tidy titles ----------------------------------------------------------------------------
+// A fixed list (import/title-fixes.json): shop-listing junk out of titles, edition
+// details into the edition note. Only books whose title is still the old one change.
+
+let tidy = [];
+$('tidyLoad').onclick = async () => {
+  $('tidyLoad').disabled = true;
+  const fixes = await (await fetch('title-fixes.json?v=1')).json();
+  tidy = [];
+  for (const f of fixes) {
+    const snap = await getDoc(doc(db, 'books', f.id));
+    if (!snap.exists()) continue;
+    const b = snap.data();
+    if (b.title === f.title) continue; // already tidy
+    const note = f.note && !(b.editionNote || '').includes(f.note) ? [b.editionNote, f.note].filter(Boolean).join(', ') : (b.editionNote || null);
+    tidy.push({ id: f.id, from: b.title, title: f.title, editionNote: note, addedNote: f.note && note !== (b.editionNote || null) ? f.note : null });
+  }
+  $('tidyTable').innerHTML = tidy.length
+    ? `<table>${tidy.map((t) => `<tr><td class="from">${esc(t.from)}</td><td>${esc(t.title)}${t.addedNote ? `<br><span class="muted">edition note: ${esc(t.addedNote)}</span>` : ''}</td></tr>`).join('')}</table>`
+    : '<p class="muted small">Nothing to tidy: every title is already clean.</p>';
+  $('tidyApply').hidden = !tidy.length;
+  $('tidyApply').textContent = `Apply ${tidy.length} changes`;
+  $('tidyLoad').disabled = false;
+};
+$('tidyApply').onclick = async () => {
+  $('tidyApply').disabled = true;
+  try {
+    const b = writeBatch(db);
+    for (const t of tidy) b.update(doc(db, 'books', t.id), { title: t.title, editionNote: t.editionNote });
+    await b.commit();
+    $('tidyTable').innerHTML = `<p class="small">Done: ${tidy.length} titles tidied. Reload the library to see them.</p>`;
+    $('tidyApply').hidden = true;
+  } catch (e) {
+    $('tidyTable').insertAdjacentHTML('beforeend', `<p class="small" style="color:var(--accent)">Couldn't save: ${esc(e.message)}</p>`);
+  }
+  $('tidyApply').disabled = false;
 };
 
 // --- Helpers --------------------------------------------------------------------------
