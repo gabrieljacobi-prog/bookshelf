@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
-  getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp,
+  getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp, query, where,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
 import { lookupAll } from './lookup.js?v=10';
@@ -64,7 +64,10 @@ $('file').onchange = async (e) => {
   refreshGo();
 };
 
-function refreshGo() { $('go').disabled = !(user && data); }
+function refreshGo() {
+  $('go').disabled = !(user && data);
+  $('retry').disabled = !user;
+}
 
 // --- Covers -----------------------------------------------------------------------
 
@@ -237,6 +240,50 @@ async function writeChunks(items) {
     await b.commit();
   }
 }
+
+// --- 6. Retry missing covers ---------------------------------------------------------
+// Only touches books with no cover. One at a time with a pause, so the sources
+// that throttled the parallel import get a fair chance. Doesn't need the CSV.
+
+$('retry').onclick = async () => {
+  if (!user) return;
+  $('retry').disabled = true;
+  $('rprogress').hidden = false;
+  const rlog = (s) => { $('rlog').textContent += s + '\n'; $('rlog').scrollTop = 1e9; };
+  const rstatus = (s) => { $('rstatus').textContent = s; };
+  try {
+    rstatus('Finding books without a cover…');
+    const snap = await getDocs(query(collection(db, 'books'), where('cover', '==', null)));
+    const books = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const t = { copied: 0, link: 0, none: 0 };
+    $('rbar').max = books.length || 1;
+    let done = 0;
+    for (const book of books) {
+      let cover = null;
+      try { cover = await prepareCover(book); } catch { /* counts as none */ }
+      if (cover) {
+        const b = writeBatch(db);
+        if (cover.mode === 'copied') {
+          b.set(doc(db, 'covers', book.id), { image: cover.thumb, size: 'thumb', bookId: book.id });
+          b.set(doc(db, 'covers', book.id + '-l'), { image: cover.large, size: 'large', bookId: book.id });
+          b.update(doc(db, 'books', book.id), { cover: { id: book.id, w: cover.w, h: cover.h, source: cover.source } });
+        } else {
+          b.update(doc(db, 'books', book.id), { cover: { url: cover.url, w: cover.w, h: cover.h, source: cover.source } });
+        }
+        await b.commit();
+      }
+      t[cover?.mode || 'none']++;
+      rlog(`${cover ? (cover.mode === 'copied' ? '■' : '□') : '·'} ${book.title}${cover ? ` (${cover.source}${cover.mode === 'link' ? ', link' : ''})` : ''}`);
+      $('rbar').value = ++done;
+      rstatus(`${done} of ${books.length} · ${t.copied} copied · ${t.link} linked · ${t.none} still without`);
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    rstatus(`Done. Found ${t.copied + t.link} more covers (${t.copied} copied, ${t.link} linked); ${t.none} books still without one.`);
+  } catch (e) {
+    rstatus('Stopped: ' + e.message);
+  }
+  $('retry').disabled = false;
+};
 
 // --- Helpers --------------------------------------------------------------------------
 

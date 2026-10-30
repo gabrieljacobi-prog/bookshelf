@@ -70,7 +70,17 @@
       <div id="log" class="card"></div>
     </div>
   </section>
+  <section id="s-retry">
+    <h2>6 · Retry missing covers</h2>
+    <p class="muted small">Looks again, one book at a time, for every book that has no cover yet. Only the cover is filled in. No CSV needed; just sign in. About 3–5 minutes.</p>
+    <button class="btn" id="retry" disabled>Retry missing covers</button>
+    <div id="rprogress" hidden style="margin-top:14px">
+      <progress id="rbar" value="0" max="1"></progress>
+      <p class="small" id="rstatus"></p>
+      <div id="rlog" class="card"></div>
+    </div>
+  </section>
 </div>
-<script type="module" src="../js/import-page.js?v=1"></script>
+<script type="module" src="../js/import-page.js?v=2"></script>
 </body>
 </html>
