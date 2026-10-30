@@ -62,18 +62,47 @@ export async function loadPrivate() {
 }
 
 // Cover images: thumb for the grid, large ("-l") for the book page.
+// Reads try the device's cache first, so a cover changed on another device (or
+// browser) would stay stale there. Each saved cover carries a version `v`, in the
+// book's cover field and in both cover docs; when the cached doc's v doesn't match
+// the book's (the book list always comes fresh from the server), it is fetched
+// again. Covers changed before versions existed have no v: those (all marked
+// verified) are fetched from the server once per device, remembered in localStorage.
 const coverMem = new Map();
-export async function coverImage(bookId, size = 'thumb') {
+const REFRESHED = 'coversRefreshed';
+let refreshed;
+function legacyDone(id) {
+  if (!refreshed) { try { refreshed = new Set(JSON.parse(localStorage.getItem(REFRESHED)) || []); } catch { refreshed = new Set(); } }
+  return refreshed.has(id);
+}
+function markLegacyDone(id) {
+  refreshed.add(id);
+  try { localStorage.setItem(REFRESHED, JSON.stringify([...refreshed])); } catch { /* private window */ }
+}
+
+export async function coverImage(bookId, size = 'thumb', book = null) {
   const id = size === 'large' ? bookId + '-l' : bookId;
-  if (coverMem.has(id)) return coverMem.get(id);
+  const v = book?.cover?.v ?? null;
+  const legacy = v == null && book?.verified && !legacyDone(id);
+  const key = id + '@' + (v ?? '') + (legacy ? '!' : '');
+  if (coverMem.has(key)) return coverMem.get(key);
   const p = (async () => {
     const ref = doc(db, 'covers', id);
-    let snap;
-    try { snap = await getDocFromCache(ref); } catch { snap = await getDoc(ref); }
+    let snap = null;
+    if (!legacy) {
+      try {
+        const c = await getDocFromCache(ref);
+        if (c.exists() && (c.data().v ?? null) === v) snap = c;
+      } catch { /* not cached */ }
+    }
+    if (!snap) {
+      snap = await getDoc(ref);
+      if (legacy) markLegacyDone(id);
+    }
     return snap.exists() ? snap.data().image : null;
   })();
-  coverMem.set(id, p);
-  p.catch(() => coverMem.delete(id));
+  coverMem.set(key, p);
+  p.catch(() => coverMem.delete(key));
   return p;
 }
 
@@ -98,26 +127,28 @@ export async function updateBooks(updates) {
 
 // A new cover copied into Firestore: thumb + large, and the book's cover field.
 export async function saveCover(bookId, { thumb, large, w, h, source }, extra = {}) {
+  const v = Date.now();
   const b = writeBatch(db);
-  b.set(doc(db, 'covers', bookId), { image: thumb, size: 'thumb', bookId });
-  b.set(doc(db, 'covers', bookId + '-l'), { image: large, size: 'large', bookId });
-  b.update(doc(db, 'books', bookId), { cover: { id: bookId, w, h, source }, ...extra });
+  b.set(doc(db, 'covers', bookId), { image: thumb, size: 'thumb', bookId, v });
+  b.set(doc(db, 'covers', bookId + '-l'), { image: large, size: 'large', bookId, v });
+  b.update(doc(db, 'books', bookId), { cover: { id: bookId, w, h, source, v }, ...extra });
   await b.commit();
-  coverMem.delete(bookId); coverMem.delete(bookId + '-l');
+  return v;
 }
 
 // The edit form: the book plus any new author or series records, and a new
 // copied cover ({ thumb, large, w, h, source }) if one was chosen, in one batch.
 export async function saveEdits(bookId, fields, newAuthors = [], newSeries = null, cover = null) {
   const b = writeBatch(db);
+  const v = Date.now();
   if (cover) {
-    b.set(doc(db, 'covers', bookId), { image: cover.thumb, size: 'thumb', bookId });
-    b.set(doc(db, 'covers', bookId + '-l'), { image: cover.large, size: 'large', bookId });
-    fields = { ...fields, cover: { id: bookId, w: cover.w, h: cover.h, source: cover.source } };
+    b.set(doc(db, 'covers', bookId), { image: cover.thumb, size: 'thumb', bookId, v });
+    b.set(doc(db, 'covers', bookId + '-l'), { image: cover.large, size: 'large', bookId, v });
+    fields = { ...fields, cover: { id: bookId, w: cover.w, h: cover.h, source: cover.source, v } };
   }
   b.update(doc(db, 'books', bookId), fields);
   for (const a of newAuthors) { const { id, ...rest } = a; b.set(doc(db, 'authors', id), rest); }
   if (newSeries) b.set(doc(db, 'series', newSeries.id), { name: newSeries.name });
   await b.commit();
-  if (cover) { coverMem.delete(bookId); coverMem.delete(bookId + '-l'); }
+  return fields;
 }

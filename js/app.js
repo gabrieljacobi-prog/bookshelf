@@ -1,5 +1,5 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits } from './data.js?v=4';
+import { onUser, signIn, signOutUser, loadCatalogue, loadPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits } from './data.js?v=5';
 import { slug, sortName, fixName } from './import-clean.js?v=1';
 import { toIsbn13 } from './lookup.js?v=11';
 import { coverFromUrl, coverFromImage } from './covers.js?v=2';
@@ -283,7 +283,7 @@ async function loadCover(el, size) {
   img.onerror = () => el.classList.remove('loading');
   if (el.dataset.url) { img.src = el.dataset.url; return; }
   try {
-    const src = await coverImage(el.dataset.cid, size);
+    const src = await coverImage(el.dataset.cid, size, S.books.get(el.dataset.cid));
     if (src) img.src = src;
     else el.classList.remove('loading');
   } catch { el.classList.remove('loading'); }
@@ -432,7 +432,7 @@ function renderBook(id) {
   const c = el.querySelector('.cover[data-cid]');
   if (c) {
     loadCover(c, 'thumb');
-    coverImage(b.id, 'large').then((src) => { if (src) c.querySelector('img').src = src; }).catch(() => {});
+    coverImage(b.id, 'large', b).then((src) => { if (src) c.querySelector('img').src = src; }).catch(() => {});
   }
   const cu = el.querySelector('.cover[data-url]');
   if (cu) loadCover(cu, 'thumb');
@@ -579,8 +579,8 @@ function wireFixPanel(el, id) {
         setFix(id, { busy: true, status: 'Saving your photo…' });
         try {
           const c = coverFromImage(img, 'Photo');
-          await saveCover(id, c, { verified: true, needsFix: false });
-          finishFix(id, { cover: { id, w: c.w, h: c.h, source: c.source } }, 'Cover saved.');
+          const v = await saveCover(id, c, { verified: true, needsFix: false });
+          finishFix(id, { cover: { id, w: c.w, h: c.h, source: c.source, v } }, 'Cover saved.');
         } catch (e) { setFix(id, { busy: false, status: 'Couldn\'t save the photo: ' + e.message }); }
       });
       return;
@@ -621,8 +621,8 @@ function wireFixPanel(el, id) {
           const c = await coverFromUrl(e.cover, e.source);
           let cover;
           if (c.mode === 'copied') {
-            await saveCover(id, c, { ...details, verified: true, needsFix: false });
-            cover = { id, w: c.w, h: c.h, source: c.source };
+            const v = await saveCover(id, c, { ...details, verified: true, needsFix: false });
+            cover = { id, w: c.w, h: c.h, source: c.source, v };
           } else {
             cover = { url: c.url, w: c.w, h: c.h, source: c.source };
             await updateBook(id, { cover, ...details, verified: true, needsFix: false });
@@ -804,7 +804,7 @@ function wireEditCover(id) {
     setCover(id, { busy: true, status: 'Opening the cover…' });
     try {
       const srcUrl = p ? (p.mode === 'copied' ? p.large : p.url)
-        : b.cover.id ? await coverImage(id, 'large') || await coverImage(id, 'thumb') : b.cover.url;
+        : b.cover.id ? await coverImage(id, 'large', b) || await coverImage(id, 'thumb', b) : b.cover.url;
       if (!srcUrl) throw new Error('no image');
       setCover(id, { busy: false, status: null });
       const img = await cropImage(srcUrl);
@@ -897,7 +897,7 @@ async function saveEdit(id) {
     if (!existing) newSeries = { id: seriesId, name: seriesName };
   }
 
-  const fields = {
+  let fields = {
     title, subtitle: fd.subtitle.trim() || null, category: fd.category,
     seriesId, seriesName: existingSeriesName(seriesId) || seriesName, volume: seriesName ? (fd.volume.trim() || null) : null,
     publisher: fd.publisher.trim() || null, year, language: fd.language || null,
@@ -916,8 +916,7 @@ async function saveEdit(id) {
   }
   status('Saving…');
   try {
-    await saveEdits(id, fields, newAuthors, newSeries, newCover);
-    if (newCover) fields.cover = { id, w: newCover.w, h: newCover.h, source: newCover.source };
+    fields = await saveEdits(id, fields, newAuthors, newSeries, newCover);
     coverDraft.delete(id);
     for (const a of newAuthors) S.authors.set(a.id, a);
     if (newSeries) S.series.set(newSeries.id, newSeries);
