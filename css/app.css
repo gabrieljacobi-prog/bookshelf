@@ -123,7 +123,7 @@ svg { display: block; flex: none; }
 .shelf { align-items: end; justify-items: start; height: var(--H); }
 .caps { padding-top: 10px; }
 .shelf > a, .caps > a { min-width: 0; text-decoration: none; color: inherit; }
-.caps .t { font-size: var(--capT); line-height: 1.22; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.caps .t { font-size: var(--capT); line-height: 1.22; height: 2.44em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .caps .a { font-size: var(--capA); font-style: italic; color: var(--muted); margin-top: 4px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .empty { padding: 48px 20px; text-align: center; color: var(--muted); font-style: italic; }
 
@@ -372,3 +372,18 @@ button.back { background: none; border: 0; color: var(--ink); }
 #editStatus .near-acts .btn-line > span { padding: 0 14px; }
 #editStatus .keep { min-height: 44px; padding: 0; background: none; border: 0; color: var(--muted); }
 .tap .v { text-transform: none; font-family: var(--text); font-weight: 400; letter-spacing: 0; font-size: 16px; }
+
+/* Filter menu: three-way rows, clear */
+.menu .seg-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 4px 10px 4px 16px; border-top: 1px solid var(--rule); }
+.menu .mh + .seg-row { border-top: 0; }
+.menu .seg-row > .lbl { font-size: 15px; }
+.menu .seg { display: flex; gap: 2px; }
+.menu .seg button { width: auto; min-height: 36px; padding: 0 9px; border: 0; font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; color: var(--muted); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.menu .seg button[aria-checked="true"] { background: var(--ink); color: var(--surface); }
+.menu .clear { font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; color: var(--accentText); }
+.section-head .clear-head { align-self: center; width: 36px; height: 36px; margin: -10px -8px -10px -6px; display: flex; align-items: center; justify-content: center; background: none; border: 0; color: var(--muted); }
+.clear-inline { margin-top: 14px; background: none; border: 0; color: var(--accentText); font-style: normal; text-decoration: underline; text-underline-offset: 3px; }
+/* Hall of Fame */
+.intro .hof { color: var(--accentText); }
+.hof-btn[aria-pressed="true"] > span { color: var(--accentText); }
+.hof-btn[aria-pressed="true"] svg { fill: currentColor; }

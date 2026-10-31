@@ -23,9 +23,9 @@ const S = {
   books: new Map(), authors: new Map(), series: new Map(), priv: new Map(),
   loaded: false, user: null,
   cat: 'All', sort: 'Recently added', q: '', searching: false, open: null,
-  read: 'any', lent: false, // member-only filters
+  hof: false, lang: 'All', orig: 'any', // filters anyone can use
+  rf: { flor: 'any', ingrid: 'any' }, lent: false, // member-only filters
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
-  cols: store.get('cols', '3') === '4' ? 4 : 3,
   reviewHidden: store.get('reviewHidden', '') === '1',
 };
 
@@ -44,6 +44,7 @@ const I = {
   ring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>',
   back: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>',
   right: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true" style="color:var(--muted)"><path d="M9 6l6 6-6 6"/></svg>',
+  star: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 17l-5.4 3 1.2-6-4.5-4.2 6.1-.7z"/></svg>',
   lend: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 12h13M12 7l5 5-5 5M20 5v14"/></svg>',
   navLib: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5 4v16M9.5 4v16M14 5.5l4.5 14.5M3 20h18"/></svg>',
   navAdd: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M7.5 12h9"/></svg>',
@@ -72,27 +73,47 @@ const titleKey = (b) => norm(b.title).replace(ARTICLE, '');
 const volNum = (v) => parseFloat(String(v ?? '').replace(/–.*/, '')) || 0;
 const isMember = () => !!S.user?.member;
 
-const READ_FILTERS = [['any', 'Anyone'], ['flor', 'Flor'], ['ingrid', 'Ingrid'], ['both', 'Both'], ['neither', 'Neither']];
+// Translated = someone on the book is credited as translator (the only sign we have).
+const isTranslated = (b) => (b.people || []).some((x) => x.role === 'translator');
+const readerName = (k) => READERS.find(([x]) => x === k)[1];
 function passesFilters(b) {
   if (S.cat !== 'All' && b.category !== S.cat) return false;
+  if (S.hof && !b.hallOfFame) return false;
+  if (S.lang !== 'All' && b.language !== S.lang) return false;
+  if (S.orig !== 'any' && isTranslated(b) !== (S.orig === 'translated')) return false;
   if (!isMember()) return true;
   const p = S.priv.get(b.id) || {};
   const r = p.readBy || [];
-  if (S.read === 'flor' && !r.includes('flor')) return false;
-  if (S.read === 'ingrid' && !r.includes('ingrid')) return false;
-  if (S.read === 'both' && !(r.includes('flor') && r.includes('ingrid'))) return false;
-  if (S.read === 'neither' && r.length) return false;
+  for (const [k] of READERS) {
+    if (S.rf[k] === 'yes' && !r.includes(k)) return false;
+    if (S.rf[k] === 'no' && r.includes(k)) return false;
+  }
   if (S.lent && !p.lentTo) return false;
   return true;
 }
+function readLabel() {
+  const { flor: f, ingrid: i } = S.rf;
+  if (f === 'any' && i === 'any') return '';
+  if (f === i) return f === 'yes' ? 'Read by both' : 'Unread';
+  const one = (k, v) => (v === 'yes' ? `Read by ${readerName(k)}` : `Not read by ${readerName(k)}`);
+  if (f === 'any') return one('ingrid', i);
+  if (i === 'any') return one('flor', f);
+  return f === 'yes' ? 'Read by Flor, not Ingrid' : 'Read by Ingrid, not Flor';
+}
 function filterLabel() {
   const parts = [];
+  if (S.hof) parts.push('Hall of Fame');
   if (S.cat !== 'All') parts.push(S.cat);
-  if (isMember() && S.read !== 'any') parts.push(S.read === 'neither' ? 'Unread' : S.read === 'both' ? 'Read by both' : `Read by ${S.read === 'flor' ? 'Flor' : 'Ingrid'}`);
+  if (S.lang !== 'All') parts.push(LANGS[S.lang] || S.lang);
+  if (S.orig !== 'any') parts.push(S.orig === 'translated' ? 'Translated' : 'Original');
+  if (isMember() && readLabel()) parts.push(readLabel());
   if (isMember() && S.lent) parts.push('Lent out');
   return parts.join(' · ') || 'All';
 }
-const otherFilters = () => isMember() && (S.read !== 'any' || S.lent);
+const memberFilters = () => isMember() && (S.rf.flor !== 'any' || S.rf.ingrid !== 'any' || S.lent);
+const otherFilters = () => S.hof || S.lang !== 'All' || S.orig !== 'any' || memberFilters();
+const anyFilter = () => S.cat !== 'All' || otherFilters();
+function clearFilters() { S.cat = 'All'; S.hof = false; S.lang = 'All'; S.orig = 'any'; S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; }
 
 function applyTheme() {
   const root = document.documentElement;
@@ -129,7 +150,7 @@ function matches(b, tokens) {
 
 function metrics() {
   const width = Math.min(document.documentElement.clientWidth, 600);
-  const n = S.cols, gap = n === 4 ? 12 : 16;
+  const n = 3, gap = 16; // fixed at three across; a wider layout for desktop comes later
   const W = Math.floor((width - 40 - gap * (n - 1)) / n);
   return { n, gap, W, H: Math.round(W * 1.585) };
 }
@@ -201,11 +222,16 @@ function renderToolbar() {
     <div class="dd">
       <button class="tap" data-open="cat" aria-haspopup="true" aria-expanded="${S.open === 'cat'}" aria-label="Show: ${esc(filterLabel())}"><span class="cur">${esc(filterLabel())}</span>${I.chev}</button>
       ${S.open === 'cat' ? `<div class="menu" role="menu" aria-label="Show">
+        ${anyFilter() ? '<button class="clear" data-clear="1">Clear filters' + I.x + '</button>' : ''}
+        <button role="menuitemcheckbox" aria-checked="${S.hof}" data-hof="1">Hall of Fame${S.hof ? I.check : ''}</button>
         <div class="mh lbl">Category</div>
         ${items([['All'], ...CATS.map((c) => [c])], S.cat, 'cat')}
+        <div class="mh lbl">Language</div>
+        ${[['All', 'All'], ...langList()].map(([k, l]) => `<button role="menuitemradio" aria-checked="${S.lang === k}" data-lang="${esc(k)}">${esc(l)}${S.lang === k ? I.check : ''}</button>`).join('')}
+        ${seg('Translation', 'orig', S.orig, [['any', 'Any'], ['original', 'Original'], ['translated', 'Translated']])}
         ${isMember() ? `
-        <div class="mh lbl">Read by</div>
-        ${READ_FILTERS.map(([k, label]) => `<button role="menuitemradio" aria-checked="${S.read === k}" data-rf="${k}">${label}${S.read === k ? I.check : ''}</button>`).join('')}
+        <div class="mh lbl">Read</div>
+        ${READERS.map(([k, name]) => seg(name, `rf-${k}`, S.rf[k], [['any', 'Any'], ['yes', 'Read'], ['no', 'Not read']])).join('')}
         <div class="mh lbl">Loans</div>
         <button role="menuitemcheckbox" aria-checked="${S.lent}" data-lentf="1">Lent out${S.lent ? I.check : ''}</button>` : ''}
       </div>` : ''}
@@ -220,8 +246,6 @@ function renderToolbar() {
     <div class="dd">
       <button class="icon-btn" data-open="menu" aria-haspopup="true" aria-expanded="${S.open === 'menu'}" aria-label="Menu">${I.menu}</button>
       ${S.open === 'menu' ? `<div class="menu right" role="menu">
-        <div class="mh lbl">Books per row</div>
-        ${[[3, 'Three'], [4, 'Four']].map(([n, l]) => `<button role="menuitemradio" aria-checked="${S.cols === n}" data-cols="${n}">${l}${S.cols === n ? I.check : ''}</button>`).join('')}
         <div class="mh lbl">Theme</div>
         ${[['system', 'Same as phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button role="menuitemradio" aria-checked="${S.theme === k}" data-theme-pick="${k}">${l}${S.theme === k ? I.check : ''}</button>`).join('')}
         <div class="mh lbl">Account</div>
@@ -234,24 +258,33 @@ function renderToolbar() {
         ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
         <div class="mh lbl">Temporary tools</div>
         <a href="import/" class="tool">Import</a>
-        <a href="scan/" class="tool">Scanner test</a>
       </div>` : ''}
     </div>`;
 }
+
+// Languages on the shelves, most books first.
+function langList() {
+  const n = new Map();
+  for (const b of S.books.values()) if (b.language) n.set(b.language, (n.get(b.language) || 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1]).map(([k]) => [k, LANGS[k] || k]);
+}
+// A row of three choices inside a menu ("Flor  Any · Read · Not read").
+const seg = (label, key, cur, opts) => `<div class="seg-row" role="group" aria-label="${esc(label)}"><span class="lbl">${esc(label)}</span><span class="seg">${opts.map(([k, l]) =>
+  `<button role="menuitemradio" aria-checked="${cur === k}" data-seg="${key}:${k}">${l}</button>`).join('')}</span></div>`;
 
 function renderList() {
   const list = $('#list');
   if (!list) return;
   if (!S.loaded) { list.innerHTML = '<p class="empty">Opening the library…</p>'; return; }
   const m = metrics();
-  list.style.cssText = `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;` + (m.n === 4
-    ? '--capT:11px;--capA:10px;--phA:7px;--phT:10px;--phPad:6px 6px 7px;'
-    : '--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;');
+  list.style.cssText = `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;`;
   const tokens = norm(S.q).split(/\s+/).filter(Boolean);
   const cmp = compare(S.sort);
   const books = [...S.books.values()].filter((b) => passesFilters(b) && matches(b, tokens)).sort(cmp);
   if (!books.length) {
-    list.innerHTML = `<p class="empty">${tokens.length || otherFilters() || S.cat !== 'All' ? 'Nothing on the shelves matches that.' : 'No books here yet.'}</p>`;
+    list.innerHTML = tokens.length || anyFilter()
+      ? `<p class="empty">Nothing on the shelves matches that.${anyFilter() ? '<br><button class="clear-inline tap" data-clear="1">Clear filters</button>' : ''}</p>`
+      : '<p class="empty">No books here yet.</p>';
     return;
   }
   const rows = [];
@@ -260,9 +293,10 @@ function renderList() {
   // shelf, so a sort like Recently added mixes the categories.
   const ci = CATS.indexOf(S.cat);
   const filtered = ci >= 0 || otherFilters() || tokens.length;
+  const clear = anyFilter() ? `<button class="clear-head" data-clear="1" aria-label="Clear filters">${I.x}</button>` : '';
   const head = ci >= 0
-    ? `<div class="section-head"><span class="num disp">${String(ci + 1).padStart(2, '0')}</span><span class="name">${esc(filterLabel())}</span><span class="of">${books.length}</span></div>`
-    : filtered ? `<div class="section-head"><span class="name">${esc(tokens.length ? 'Search results' : filterLabel())}</span><span class="of">${books.length}</span></div>`
+    ? `<div class="section-head"><span class="num disp">${String(ci + 1).padStart(2, '0')}</span><span class="name">${esc(filterLabel())}</span><span class="of">${books.length}</span>${clear}</div>`
+    : filtered ? `<div class="section-head"><span class="name">${esc(tokens.length ? 'Search results' : filterLabel())}</span><span class="of">${books.length}</span>${tokens.length ? '' : clear}</div>`
     : '<div style="height:24px"></div>';
   const html = `
     <section class="section">
@@ -319,12 +353,18 @@ document.addEventListener('click', async (e) => {
   if (t.tagName === 'A' && t.closest('.menu')) { S.open = null; return; }
   if (t.dataset.open) { S.open = S.open === t.dataset.open ? null : t.dataset.open; renderToolbar(); return; }
   if (t.dataset.cat) { S.cat = t.dataset.cat; renderToolbar(); renderList(); return; }
-  if (t.dataset.rf) { S.read = t.dataset.rf; renderToolbar(); renderList(); return; }
+  if (t.dataset.hof) { S.hof = !S.hof; renderToolbar(); renderList(); return; }
+  if (t.dataset.lang) { S.lang = t.dataset.lang; renderToolbar(); renderList(); return; }
+  if (t.dataset.seg) {
+    const [k, v] = t.dataset.seg.split(':');
+    if (k === 'orig') S.orig = v; else S.rf = { ...S.rf, [k.slice(3)]: v };
+    renderToolbar(); renderList(); return;
+  }
+  if (t.dataset.clear) { clearFilters(); renderToolbar(); renderList(); return; }
   if (t.dataset.lentf) { S.lent = !S.lent; renderToolbar(); renderList(); return; }
   if (t.dataset.themePick) { S.theme = t.dataset.themePick; store.set('theme', S.theme); applyTheme(); renderToolbar(); return; }
   if (t.dataset.sort) { S.sort = t.dataset.sort; S.open = null; renderToolbar(); renderList(); return; }
   if (t.id === 'openSearch') { S.searching = true; S.open = null; renderToolbar(); return; }
-  if (t.dataset.cols) { S.cols = Number(t.dataset.cols); store.set('cols', String(S.cols)); renderToolbar(); renderList(); return; }
   if (t.dataset.act === 'signin') { S.open = null; renderToolbar(); signIn().catch((err) => toast(err.message)); return; }
   if (t.dataset.act === 'signout') { S.open = null; signOutUser(); return; }
   if (t.dataset.go) { S.open = null; location.hash = t.dataset.go; return; }
@@ -432,7 +472,7 @@ function renderBook(id) {
     </section>
     ${fixPanelHtml(b)}
     <section class="intro">
-      ${b.category ? `<div class="lbl">${esc(b.category)}</div>` : ''}
+      ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}</div>` : ''}
       <h1 class="disp${b.title.length > 22 ? ' long' : ''}">${esc(b.title)}</h1>
       ${b.subtitle ? `<p class="subtitle">${esc(b.subtitle)}</p>` : ''}
       ${b.authors?.length ? `<div class="by">${esc(byLine(b))}</div>` : ''}
@@ -441,6 +481,7 @@ function renderBook(id) {
       ${seriesRow}
     </section>
     ${readers}
+    ${member ? `<div class="lend"><button class="btn-line ch8 hof-btn" id="hof" aria-pressed="${!!b.hallOfFame}" style="width:100%;height:56px"><span class="ch8i tap">${I.star}${b.hallOfFame ? 'In the Hall of Fame' : 'Add to the Hall of Fame'}</span></button></div>` : ''}
     ${lending}
     <section class="block">
       <h2 class="disp">The edition</h2>
@@ -469,6 +510,15 @@ function renderBook(id) {
     try { await savePrivate(id, { readBy: next }); }
     catch (err) { S.priv.set(id, before); renderBook(id); toast('Couldn\'t save: ' + err.message); }
   }));
+
+  // Hall of Fame: one shared mark for the books you both agree are great.
+  $('#hof', el)?.addEventListener('click', async () => {
+    const was = !!b.hallOfFame;
+    S.books.set(id, { ...b, hallOfFame: !was });
+    renderBook(id);
+    try { await updateBook(id, { hallOfFame: !was }); }
+    catch (err) { S.books.set(id, b); renderBook(id); toast('Couldn\'t save: ' + err.message); }
+  });
 
   // Lending
   $('#openLend', el)?.addEventListener('click', () => { lendUI.set(id, 'form'); renderBook(id); $('#borrower')?.focus(); });
@@ -1694,7 +1744,7 @@ function start() {
   let stopPrivate = null;
   onUser((u) => {
     S.user = u;
-    if (!u?.member) { S.read = 'any'; S.lent = false; }
+    if (!u?.member) { S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; }
     stopPrivate?.(); stopPrivate = null;
     S.priv = new Map();
     rerender();
@@ -1705,7 +1755,7 @@ function start() {
         // The grid shows no read status or loans, so it only redraws for them
         // when a Read by / Lent out filter is on.
         const v = viewOf(location.hash);
-        if (first || v !== 'library' || S.read !== 'any' || S.lent) first ? rerender() : liveRerender();
+        if (first || v !== 'library' || memberFilters()) first ? rerender() : liveRerender();
         first = false;
       }, (e) => toast('Couldn\'t load read status: ' + e.message));
     }

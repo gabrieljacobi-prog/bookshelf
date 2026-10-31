@@ -8,7 +8,6 @@ A home-library catalogue for two, replacing a bookshelf app. Static site on GitH
 
 ## Tools
 
-- `scan/` — camera barcode scanner (ZXing in Firefox, the built-in detector in Chrome) with lookups in Google Books, Open Library and LIBRIS.
 - `import/` — one-off import of the previous app CSV export: sign in, pick the CSV, review the clean-up, try covers, import. Clean-up rules live in `js/import-clean.js` (no DOM, testable in Node). Re-running skips books already imported; people and series that already exist are never overwritten.
 - `test/` — coverage test: runs every ISBN from the old Bookshelf export through the same lookups and reports hit rates and missing covers.
 

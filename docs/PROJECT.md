@@ -46,7 +46,7 @@ Coverage test across all 408 ISBNs from the export: **99% found, 81% with a work
 - Own frame loop: each frame is cropped to the guide area and decoded with ZXing (`vendor/zxing-browser.min.js`, @zxing/browser 0.2.1). Chrome's native detector is used when available.
 - A code is accepted after two identical reads. EAN-13 and UPC-A are read; a non-ISBN code (a price barcode) shows "look inside the front cover". Older US paperbacks (e.g. Cordelia's Honor) keep the ISBN barcode inside the front cover.
 - **Take photo** fallback decodes a still taken with the phone's camera (tries bands and rotation).
-- Typed ISBN entry. Pages: `/scan/` (scanner test), `/test/` (coverage test).
+- Typed ISBN entry. Pages: `/test/` (coverage test). The scanner test page was removed 31 Oct (Add book does the scanning).
 
 ## Findings about the old data (Bookshelf CSV export, 409 books)
 
