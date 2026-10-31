@@ -387,3 +387,10 @@ button.back { background: none; border: 0; color: var(--ink); }
 .intro .hof { color: var(--accentText); }
 .hof-btn[aria-pressed="true"] > span { color: var(--accentText); }
 .hof-btn[aria-pressed="true"] svg { fill: currentColor; }
+
+/* To fix: paperback or hardcover */
+.bind-seg { display: flex; gap: 6px; margin-top: 10px; }
+.bind-seg button { height: 36px; padding: 0 14px; background: var(--ph); border: 0; color: var(--phInk); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.bind-seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.bind-save { margin: 16px 20px 0; display: flex; justify-content: flex-end; }
+.bind-save .btn-ink { height: 48px; padding: 0 24px; }

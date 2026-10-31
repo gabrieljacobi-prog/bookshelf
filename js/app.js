@@ -1,5 +1,5 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=8';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=8';
 import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=2';
 import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=2';
 import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=12';
@@ -174,7 +174,7 @@ function coverBox(b, W, H, cls = '') {
 function renderLibrary() {
   const el = $('#library');
   const n = S.books.size;
-  const fixN = toFix().length;
+  const fixN = toFix().length + (S.loaded && isMember() ? noBinding().length : 0);
   const oddN = S.loaded && isMember() ? looksOdd().length : 0;
   const barText = [fixN && `${fixN} book${fixN === 1 ? '' : 's'} to fix`, oddN && `${oddN}${fixN ? '' : ` book${oddN === 1 ? '' : 's'}`} look${oddN === 1 ? 's' : ''} odd`].filter(Boolean).join(' · ');
   el.innerHTML = `
@@ -548,6 +548,17 @@ function renderBook(id) {
 
 const toFix = () => [...S.books.values()].filter((b) => b.needsFix || !b.cover);
 
+// Printed books without paperback / hardcover. Pre-picked from Gabriel's answers
+// of 31 Oct (all paperback except these); the two "ebooks" are printed copies.
+const HARDCOVER_31OCT = ['vampire: the masquerade', 'fallet med den forsvunna hallonsylten', 'fallet med de mystiska pingvinerna',
+  'svampar i naturen', 'planeten, klimatet', 'kanslostormar och spanska korvar', 'framtidsfabriken och balkongfallet',
+  'incidente em antares', 'o tunel', 'lord lyllian', 'call of cthulhu'];
+const NOT_EBOOKS_31OCT = ['call of cthulhu', 'baudolino'];
+const noBinding = () => [...S.books.values()].filter((b) => (b.format !== 'ebook' && !b.binding)
+  || (b.format === 'ebook' && NOT_EBOOKS_31OCT.includes(norm(b.title))));
+const bindingGuess = (b) => (HARDCOVER_31OCT.some((t) => norm(b.title).startsWith(t)) ? 'hardcover' : 'paperback');
+const bindPick = new Map(); // id → choice on the To fix page, until saved
+
 // Books whose record looks odd (js/checks.js), leaving out the ones still waiting
 // for their edition or cover: those get looked at anyway. Worked out again only
 // when the catalogue changes.
@@ -617,12 +628,27 @@ function renderFixList() {
         <div class="odd-acts"><a class="tap" href="#/book/${esc(b.id)}/edit">Edit</a><button class="tap" data-fine="1">It’s fine</button></div>
       </div>
     </div>`;
-  const nothing = !all.length && !odd.length;
+  const unbound = noBinding().sort(compare('Author'));
+  const pick = (b) => bindPick.get(b.id) || bindingGuess(b);
+  const bindRow = (b) => `
+    <div class="fix-row" data-bind="${esc(b.id)}">
+      <a class="cv" href="#/book/${esc(b.id)}" aria-hidden="true" tabindex="-1">${coverBox(b, 44, 66)}</a>
+      <div style="flex:1;min-width:0">
+        <a class="tt" href="#/book/${esc(b.id)}" style="display:block;text-decoration:none">${esc(b.title)}</a><span class="sub" style="display:block">${sub(b)}${b.format === 'ebook' ? ' · marked as ebook' : ''}</span>
+        <div class="bind-seg" role="group" aria-label="Binding">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover']].map(([k, l]) =>
+          `<button class="tap" aria-pressed="${pick(b) === k}" data-b="${k}">${l}</button>`).join('')}</div>
+      </div>
+    </div>`;
+  const nothing = !all.length && !odd.length && !unbound.length;
   el.innerHTML = `
     <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
     <header class="page-head"><h1 class="disp">To fix</h1>
       <p>${nothing ? 'Nothing to fix.' : 'Open a book to find the right edition, pick another cover, or take a photo of yours.'}</p></header>
-    ${merges ? `<div class="fix-list" style="margin-top:4px"><a class="fix-row" href="#/names"><span style="flex:1;min-width:0"><span class="tt" style="display:block">People &amp; publishers</span><span class="sub" style="display:block">${merges} to tidy up</span></span>${I.right}</a></div>` : ''}
+    ${unbound.length ? `<div class="section-head" style="padding-top:12px"><span class="name">Paperback or hardcover</span><span class="of">${unbound.length}</span></div>
+      <p class="sec-hint">Picked from your answers. Change any that are wrong, then save them all.</p>
+      <div class="fix-list">${unbound.map(bindRow).join('')}</div>
+      <div class="bind-save"><button class="btn-ink tap ch8" id="saveBind">Save ${unbound.length} book${unbound.length === 1 ? '' : 's'}</button></div>` : ''}
+    ${merges ? `<div class="fix-list" style="margin-top:${unbound.length ? 32 : 4}px"><a class="fix-row" href="#/names"><span style="flex:1;min-width:0"><span class="tt" style="display:block">People &amp; publishers</span><span class="sub" style="display:block">${merges} to tidy up</span></span>${I.right}</a></div>` : ''}
     ${wrong.length ? `<div class="section-head" style="padding-top:${merges ? 40 : 12}px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
     ${noCover.length ? `<div class="section-head"><span class="name">No cover</span><span class="of">${noCover.length}</span></div><div class="fix-list">${noCover.map(row).join('')}</div>` : ''}
     ${odd.length ? `<div class="section-head"><span class="name">Looks odd</span><span class="of">${odd.length}</span></div>
@@ -630,6 +656,20 @@ function renderFixList() {
       <div class="fix-list">${odd.map(oddRow).join('')}</div>` : ''}
     <div style="height:40px"></div>`;
   observeCovers(el);
+  el.querySelectorAll('[data-bind]').forEach((r) => r.querySelectorAll('[data-b]').forEach((btn) => btn.addEventListener('click', () => {
+    bindPick.set(r.dataset.bind, btn.dataset.b);
+    r.querySelectorAll('[data-b]').forEach((x) => x.setAttribute('aria-pressed', String(x === btn)));
+  })));
+  $('#saveBind', el)?.addEventListener('click', async (ev) => {
+    const ups = unbound.map((b) => [b.id, { format: 'physical', binding: pick(b) }]);
+    ev.currentTarget.disabled = true;
+    const before = new Map(ups.map(([id]) => [id, S.books.get(id)]));
+    for (const [id, f] of ups) S.books.set(id, { ...S.books.get(id), ...f });
+    bindPick.clear();
+    renderFixList();
+    try { await updateBooks(ups); toast(`Saved ${ups.length} books.`); }
+    catch (err) { for (const [id, b] of before) S.books.set(id, b); renderFixList(); toast('Couldn\'t save: ' + err.message); }
+  });
   el.querySelectorAll('[data-odd]').forEach((r) => {
     const id = r.dataset.odd;
     const entry = () => looksOdd().find((x) => x.b.id === id);
@@ -948,7 +988,7 @@ function renderEdit(id) {
   }
   const people = editDraft.get(id);
   const opt = (v, label, cur) => `<option value="${esc(v)}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${esc(label)}</option>`;
-  const fmt = b.format === 'ebook' ? 'ebook' : b.binding || 'physical';
+  const fmt = b.format === 'ebook' ? 'ebook' : b.binding || 'paperback'; // most books are paperbacks
   const langKnown = !b.language || EDIT_LANGS.some(([k]) => k === b.language);
   const publishers = [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))].sort();
   const seriesNames = [...S.series.values()].map((x) => x.name).sort();
@@ -977,7 +1017,7 @@ function renderEdit(id) {
         ${field('Publisher', 'publisher', b.publisher, 'list="dl-pub"')}
         ${field('This edition', 'year', b.year, 'inputmode="numeric" maxlength="4" style="max-width:120px"')}
         <div class="fr"><label class="lbl" for="f-language">Language</label><select id="f-language" name="language">${opt('', '—', b.language || '')}${EDIT_LANGS.map(([k, l]) => opt(k, l, b.language)).join('')}${langKnown ? '' : opt(b.language, b.language, b.language)}</select></div>
-        <div class="fr"><label class="lbl" for="f-format">Format</label><select id="f-format" name="format">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover'], ['physical', 'Other physical'], ['ebook', 'Ebook']].map(([k, l]) => opt(k, l, fmt)).join('')}</select></div>
+        <div class="fr"><label class="lbl" for="f-format">Format</label><select id="f-format" name="format">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover'], ['ebook', 'Ebook']].map(([k, l]) => opt(k, l, fmt)).join('')}</select></div>
         ${field('Pages', 'pages', b.pages, 'inputmode="numeric" style="max-width:120px"')}
         ${field('ISBN', 'isbn', b.isbn, 'inputmode="numeric"')}
         ${field('Edition note', 'editionNote', b.editionNote, 'placeholder="Book club edition, Zephyr Books…"')}
