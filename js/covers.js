@@ -56,9 +56,74 @@ export function coverFromImage(img, source) {
   return { mode: 'copied', ...both(img, source) };
 }
 
-// From a photo or file picked on the phone (EXIF rotation is applied by the browser).
-export async function coverFromFile(file) {
+// --- Photos from the phone: upright, whatever the browser does ----------------------
+// A camera stores the picture as the sensor saw it plus a tag saying how to turn
+// it ("rotate 90°"). Browsers normally apply the tag; this checks once whether
+// this one does, and if not turns the picture here. (A photo taken straight down
+// at a book on a table can still come out sideways: the phone can't tell which
+// way is up then. That's what Rotate in the crop step is for.)
+
+// 16×8 JPEG, left half black, tagged "rotate 90° clockwise": applied, it's 8×16 with the black half on top.
+const TEST = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4QAiRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAYAAAAAAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCAAIABADAREAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD+f+gD+/ygD//Z';
+let applies = null;
+function browserApplies() {
+  if (!applies) {
+    applies = loadImage(TEST, false).then((img) => {
+      // Drawn as the browser draws it: if the tag was applied, there's picture at (2, 12).
+      const c = document.createElement('canvas');
+      c.width = 16; c.height = 16;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c.getContext('2d').getImageData(2, 12, 1, 1).data[3] > 0;
+    }).catch(() => true);
+  }
+  return applies;
+}
+
+// The rotation tag (1–8) from a JPEG's EXIF block; 1 when there's none.
+async function exifOrientation(file) {
+  try {
+    const v = new DataView(await file.slice(0, 128 * 1024).arrayBuffer());
+    if (v.getUint16(0) !== 0xFFD8) return 1;
+    let p = 2;
+    while (p + 4 < v.byteLength) {
+      const marker = v.getUint16(p), len = v.getUint16(p + 2);
+      if (marker === 0xFFE1 && v.getUint32(p + 4) === 0x45786966) { // "Exif"
+        const t = p + 10, le = v.getUint16(t) === 0x4949;
+        const n = v.getUint16(t + v.getUint32(t + 4, le), le);
+        for (let i = 0; i < n; i++) {
+          const e = t + v.getUint32(t + 4, le) + 2 + i * 12;
+          if (v.getUint16(e, le) === 0x0112) return v.getUint16(e + 8, le) || 1;
+        }
+        return 1;
+      }
+      if ((marker & 0xFF00) !== 0xFF00 || marker === 0xFFDA) return 1;
+      p += 2 + len;
+    }
+  } catch { /* not a JPEG we can read */ }
+  return 1;
+}
+
+// A picked photo as an upright canvas, the long edge at most `maxEdge`.
+export async function photoCanvas(file, maxEdge) {
   const url = URL.createObjectURL(file);
-  try { return { mode: 'copied', ...both(await loadImage(url, false), 'Photo') }; }
-  finally { URL.revokeObjectURL(url); }
+  try {
+    const [img, fix] = await Promise.all([loadImage(url, false), browserApplies().then((ok) => (ok ? 1 : exifOrientation(file)))]);
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const s = Math.min(1, maxEdge / Math.max(iw, ih));
+    const w = Math.round(iw * s), h = Math.round(ih * s);
+    const side = fix >= 5; // 5–8 turn the picture a quarter
+    const c = document.createElement('canvas');
+    c.width = side ? h : w; c.height = side ? w : h;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    const T = { 2: [-1, 0, 0, 1, w, 0], 3: [-1, 0, 0, -1, w, h], 4: [1, 0, 0, -1, 0, h], 5: [0, 1, 1, 0, 0, 0], 6: [0, 1, -1, 0, h, 0], 7: [0, -1, -1, 0, h, w], 8: [0, -1, 1, 0, 0, w] }[fix];
+    if (T) g.setTransform(...T);
+    g.drawImage(img, 0, 0, w, h);
+    return c;
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// From a photo or file picked on the phone.
+export async function coverFromFile(file) {
+  return { mode: 'copied', ...both(await photoCanvas(file, LARGE.edge), 'Photo') };
 }

@@ -4,8 +4,8 @@ import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=2';
 import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=2';
 import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=12';
 import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=2';
-import { coverFromUrl, coverFromImage } from './covers.js?v=2';
-import { cropImage } from './crop.js?v=3';
+import { coverFromUrl, coverFromImage } from './covers.js?v=3';
+import { cropImage } from './crop.js?v=4';
 import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=5';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];

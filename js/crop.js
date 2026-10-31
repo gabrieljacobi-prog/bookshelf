@@ -4,17 +4,16 @@
 //
 // cropImage(fileOrUrl) → a canvas (cropped), the whole image (as a canvas), or
 // null when cancelled. The result goes on to coverFromImage() in covers.js.
-import { loadImage } from './covers.js?v=2';
+import { loadImage, photoCanvas } from './covers.js?v=3';
 
 const WORK = 2400; // long edge of the working copy (phone photos can be 4000+ px)
 const OUT = 1600;  // long edge of the result; the large cover is never bigger
 
 export async function cropImage(source) {
-  const isBlob = source instanceof Blob;
-  const url = isBlob ? URL.createObjectURL(source) : source;
   let src;
-  try {
-    const img = await loadImage(url, !isBlob && /^https?:/.test(url));
+  if (source instanceof Blob) src = await photoCanvas(source, WORK); // upright, whatever the browser does
+  else {
+    const img = await loadImage(source, /^https?:/.test(source));
     const iw = img.naturalWidth, ih = img.naturalHeight;
     const s = Math.min(1, WORK / Math.max(iw, ih));
     src = document.createElement('canvas');
@@ -22,14 +21,24 @@ export async function cropImage(source) {
     const g = src.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, src.width, src.height);
     g.drawImage(img, 0, 0, src.width, src.height);
-  } finally { if (isBlob) URL.revokeObjectURL(url); }
+  }
   return new Promise((resolve) => openCropper(src, resolve));
+}
+
+// The picture turned a quarter clockwise.
+function turn(src) {
+  const c = document.createElement('canvas');
+  c.width = src.height; c.height = src.width;
+  const g = c.getContext('2d');
+  g.setTransform(0, 1, -1, 0, src.height, 0);
+  g.drawImage(src, 0, 0);
+  return c;
 }
 
 // --- The cropping view ---------------------------------------------------------
 
 function openCropper(src, done) {
-  const W = src.width, H = src.height;
+  let W = src.width, H = src.height;
   const inset = Math.round(Math.min(W, H) * 0.06);
   const pts = [[inset, inset], [W - inset, inset], [W - inset, H - inset], [inset, H - inset]]; // tl, tr, br, bl
   const ov = document.createElement('div');
@@ -38,7 +47,8 @@ function openCropper(src, done) {
   ov.setAttribute('aria-modal', 'true');
   ov.setAttribute('aria-label', 'Crop the cover');
   ov.innerHTML = `
-    <p class="crop-hint">Drag the four corners onto the corners of the cover.</p>
+    <div class="crop-hint"><p>Drag the four corners onto the corners of the cover.</p>
+      <button type="button" class="tap crop-rot" data-c="rotate" aria-label="Rotate a quarter turn clockwise"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>Rotate</button></div>
     <div class="crop-stage"><div class="crop-frame">
       <canvas class="crop-img"></canvas>
       <svg class="crop-svg" aria-hidden="true"></svg>
@@ -172,6 +182,16 @@ function openCropper(src, done) {
   vv?.addEventListener('resize', fit);
   vv?.addEventListener('scroll', fit);
   ov.querySelector('[data-c="cancel"]').addEventListener('click', () => close(null));
+  // A quarter turn clockwise; the corners turn with the picture.
+  ov.querySelector('[data-c="rotate"]').addEventListener('click', () => {
+    const h0 = H;
+    src = turn(src);
+    [W, H] = [H, W];
+    const m = ([x, y]) => [h0 - y, x];
+    const [tl, tr, br, bl] = pts;
+    pts.splice(0, 4, m(bl), m(tl), m(tr), m(br));
+    layout();
+  });
   ov.querySelector('[data-c="whole"]').addEventListener('click', () => close(src));
   ov.querySelector('[data-c="crop"]').addEventListener('click', () => {
     const b = ov.querySelector('[data-c="crop"]');
