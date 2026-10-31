@@ -201,7 +201,7 @@ $('go').onclick = async () => {
       try {
         const cover = await prepareCover(book).catch(() => null);
         const b = writeBatch(db);
-        const rec = { ...book, importedAt: serverTimestamp() };
+        const rec = { ...book, importedAt: serverTimestamp(), updatedAt: serverTimestamp() };
         delete rec.id;
         if (cover?.mode === 'copied') {
           rec.cover = { id: book.id, w: cover.w, h: cover.h, source: cover.source };
@@ -213,7 +213,7 @@ $('go').onclick = async () => {
         b.set(doc(db, 'books', book.id), rec);
         const p = { ...privates.get(book.id) };
         delete p.id;
-        b.set(doc(db, 'private', book.id), p);
+        b.set(doc(db, 'private', book.id), { ...p, updatedAt: serverTimestamp() });
         await b.commit();
         tally[cover?.mode || 'none']++;
         if (!cover) missing.push(book.title);
@@ -240,7 +240,7 @@ async function writeChunks(items) {
     for (const [c, id, rec] of items.slice(i, i + 400)) {
       const r = { ...rec };
       delete r.id;
-      b.set(doc(db, c, id), r);
+      b.set(doc(db, c, id), { ...r, updatedAt: serverTimestamp() });
     }
     await b.commit();
   }
@@ -271,9 +271,9 @@ $('retry').onclick = async () => {
         if (cover.mode === 'copied') {
           b.set(doc(db, 'covers', book.id), { image: cover.thumb, size: 'thumb', bookId: book.id });
           b.set(doc(db, 'covers', book.id + '-l'), { image: cover.large, size: 'large', bookId: book.id });
-          b.update(doc(db, 'books', book.id), { cover: { id: book.id, w: cover.w, h: cover.h, source: cover.source } });
+          b.update(doc(db, 'books', book.id), { cover: { id: book.id, w: cover.w, h: cover.h, source: cover.source }, updatedAt: serverTimestamp() });
         } else {
-          b.update(doc(db, 'books', book.id), { cover: { url: cover.url, w: cover.w, h: cover.h, source: cover.source } });
+          b.update(doc(db, 'books', book.id), { cover: { url: cover.url, w: cover.w, h: cover.h, source: cover.source }, updatedAt: serverTimestamp() });
         }
         await b.commit();
       }
@@ -320,7 +320,7 @@ $('tidyApply').onclick = async () => {
   $('tidyApply').disabled = true;
   try {
     const b = writeBatch(db);
-    for (const t of tidy) b.update(doc(db, 'books', t.id), { title: t.title, editionNote: t.editionNote });
+    for (const t of tidy) b.update(doc(db, 'books', t.id), { title: t.title, editionNote: t.editionNote, updatedAt: serverTimestamp() });
     await b.commit();
     $('tidyTable').innerHTML = `<p class="small">Done: ${tidy.length} titles tidied. Reload the library to see them.</p>`;
     $('tidyApply').hidden = true;
@@ -396,7 +396,7 @@ $('yearsApply').onclick = async () => {
   try {
     for (let i = 0; i < pick.length; i += 400) {
       const b = writeBatch(db);
-      for (const y of pick.slice(i, i + 400)) b.update(doc(db, 'books', y.id), { firstYear: y.firstYear });
+      for (const y of pick.slice(i, i + 400)) b.update(doc(db, 'books', y.id), { firstYear: y.firstYear, updatedAt: serverTimestamp() });
       await b.commit();
     }
     $('yearsTable').innerHTML = `<p class="small">Done: ${pick.length} books have a first-published year. Reload the library to see them.</p>`;

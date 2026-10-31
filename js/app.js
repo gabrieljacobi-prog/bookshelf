@@ -1,5 +1,5 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=8';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=9';
 import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=2';
 import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=2';
 import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=12';
