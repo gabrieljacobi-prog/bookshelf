@@ -29,7 +29,7 @@ const S = {
   loaded: false, user: null,
   cat: 'All', sort: 'Recently added', q: '', searching: false, open: null,
   hof: false, lang: 'All', orig: 'any', // filters anyone can use
-  rf: { flor: 'any', ingrid: 'any' }, lent: false, // member-only filters
+  rf: { flor: 'any', ingrid: 'any' }, lent: false, toGo: false, arch: false, // member-only filters
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
   reviewHidden: store.get('reviewHidden', '') === '1',
 };
@@ -80,8 +80,15 @@ const isMember = () => !!S.user?.member;
 
 // Translated = someone on the book is credited as translator (the only sign we have).
 const isTranslated = (b) => (b.people || []).some((x) => x.role === 'translator');
+// Archived = no longer in the house. Kept (with where it went, in private) but
+// off the shelves: not counted, not checked, not shown to friends.
+const onShelf = (b) => !b.archived;
+const shelfBooks = () => [...S.books.values()].filter(onShelf);
+const HOWS = [['given', 'Given away'], ['sold', 'Sold'], ['donated', 'Donated'], ['lost', 'Lost']];
+const howLabel = (k) => HOWS.find(([x]) => x === k)?.[1] || 'Left the shelf';
 const readerName = (k) => READERS.find(([x]) => x === k)[1];
 function passesFilters(b) {
+  if (!!b.archived !== (isMember() && S.arch)) return false;
   if (S.cat !== 'All' && b.category !== S.cat) return false;
   if (S.hof && !b.hallOfFame) return false;
   if (S.lang !== 'All' && b.language !== S.lang) return false;
@@ -94,6 +101,7 @@ function passesFilters(b) {
     if (S.rf[k] === 'no' && r.includes(k)) return false;
   }
   if (S.lent && !p.lentTo) return false;
+  if (S.toGo && !p.toGo) return false;
   return true;
 }
 function readLabel() {
@@ -113,12 +121,14 @@ function filterLabel() {
   if (S.orig !== 'any') parts.push(S.orig === 'translated' ? 'Translated' : 'Original');
   if (isMember() && readLabel()) parts.push(readLabel());
   if (isMember() && S.lent) parts.push('Lent out');
+  if (isMember() && S.toGo) parts.push('Getting rid of');
+  if (isMember() && S.arch) parts.push('Archived');
   return parts.join(' · ') || 'All';
 }
-const memberFilters = () => isMember() && (S.rf.flor !== 'any' || S.rf.ingrid !== 'any' || S.lent);
+const memberFilters = () => isMember() && (S.rf.flor !== 'any' || S.rf.ingrid !== 'any' || S.lent || S.toGo || S.arch);
 const otherFilters = () => S.hof || S.lang !== 'All' || S.orig !== 'any' || memberFilters();
 const anyFilter = () => S.cat !== 'All' || otherFilters();
-function clearFilters() { S.cat = 'All'; S.hof = false; S.lang = 'All'; S.orig = 'any'; S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; }
+function clearFilters() { S.cat = 'All'; S.hof = false; S.lang = 'All'; S.orig = 'any'; S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; S.toGo = false; S.arch = false; }
 
 function applyTheme() {
   const root = document.documentElement;
@@ -185,7 +195,7 @@ function coverBox(b, W, H, cls = '') {
 
 function renderLibrary() {
   const el = $('#library');
-  const n = S.books.size;
+  const n = shelfBooks().length;
   const fixN = toFix().length + (S.loaded && isMember() ? noBinding().length : 0);
   const oddN = S.loaded && isMember() ? looksOdd().length : 0;
   const barText = [fixN && `${fixN} book${fixN === 1 ? '' : 's'} to fix`, oddN && `${oddN}${fixN ? '' : ` book${oddN === 1 ? '' : 's'}`} look${oddN === 1 ? 's' : ''} odd`].filter(Boolean).join(' · ');
@@ -249,7 +259,10 @@ function renderToolbar() {
         <div class="mh lbl">Read</div>
         ${READERS.map(([k, name]) => seg(name, `rf-${k}`, S.rf[k], [['any', 'Any'], ['yes', 'Read'], ['no', 'Not read']])).join('')}
         <div class="mh lbl">Loans</div>
-        <button role="menuitemcheckbox" aria-checked="${S.lent}" data-lentf="1">Lent out${S.lent ? I.check : ''}</button>` : ''}
+        <button role="menuitemcheckbox" aria-checked="${S.lent}" data-lentf="1">Lent out${S.lent ? I.check : ''}</button>
+        <div class="mh lbl">Leaving</div>
+        <button role="menuitemcheckbox" aria-checked="${S.toGo}" data-togof="1">Getting rid of${S.toGo ? I.check : ''}</button>
+        <button role="menuitemcheckbox" aria-checked="${S.arch}" data-archf="1">Archived${S.arch ? I.check : ''}</button>` : ''}
       </div>` : ''}
     </div>
     <span class="sep" aria-hidden="true"></span>
@@ -276,12 +289,18 @@ function renderToolbar() {
         <a href="import/" class="tool">Import</a>
       </div>` : ''}
     </div>`;
+  // An open menu ends above the bottom bar, so its last items can always be scrolled to.
+  const menu = tb.querySelector('.menu');
+  if (menu) {
+    const navH = $('#nav')?.offsetHeight || 0;
+    menu.style.maxHeight = `${Math.max(240, Math.min(560, innerHeight - navH - menu.getBoundingClientRect().top - 12))}px`;
+  }
 }
 
 // Languages on the shelves, most books first.
 function langList() {
   const n = new Map();
-  for (const b of S.books.values()) if (b.language) n.set(b.language, (n.get(b.language) || 0) + 1);
+  for (const b of shelfBooks()) if (b.language) n.set(b.language, (n.get(b.language) || 0) + 1);
   return [...n].sort((a, b) => b[1] - a[1]).map(([k]) => [k, LANGS[k] || k]);
 }
 // A row of three choices inside a menu ("Flor  Any · Read · Not read").
@@ -383,6 +402,8 @@ document.addEventListener('click', async (e) => {
   }
   if (t.dataset.clear) { clearFilters(); renderToolbar(); renderList(); return; }
   if (t.dataset.lentf) { S.lent = !S.lent; renderToolbar(); renderList(); return; }
+  if (t.dataset.togof) { S.toGo = !S.toGo; renderToolbar(); renderList(); return; }
+  if (t.dataset.archf) { S.arch = !S.arch; renderToolbar(); renderList(); return; }
   if (t.dataset.themePick) { S.theme = t.dataset.themePick; store.set('theme', S.theme); applyTheme(); renderToolbar(); return; }
   if (t.dataset.sort) { S.sort = t.dataset.sort; S.open = null; renderToolbar(); renderList(); return; }
   if (t.id === 'openSearch') { S.searching = true; S.open = null; renderToolbar(); return; }
@@ -410,11 +431,12 @@ window.addEventListener('resize', () => {
 // --- Book page ------------------------------------------------------------------------------
 
 const lendUI = new Map(); // bookId → 'form' while the lend form is open
+const archUI = new Map(); // bookId → { how } while the archive form is open
 
 function renderBook(id) {
   const el = $('#book');
   const b = S.books.get(id);
-  if (!b) {
+  if (!b || (b.archived && !isMember())) {
     el.innerHTML = `<div class="book-top"><a class="back tap" href="#/">${I.back}Library</a></div><p class="empty">${S.loaded ? 'This book isn\'t in the library.' : 'Opening…'}</p>`;
     return;
   }
@@ -473,6 +495,31 @@ function renderBook(id) {
     }
   }
 
+  // Leaving the shelf: a private "getting rid of" mark, then Archive once it's gone.
+  let leaving = '';
+  if (member && b.archived) {
+    const a = p.archive || {};
+    lending = '';
+    leaving = `<div class="lend"><div class="card ch12"><div class="ch12i">
+      <div style="flex:1;min-width:0"><div class="lbl">Archived${a.date ? ` · ${esc(fmtDate(a.date))}` : ''}</div><div class="who">${esc(howLabel(a.how))}</div>${a.note ? `<div class="since">${esc(a.note)}</div>` : ''}</div>
+      <button class="btn-ink tap ch8" id="unarchive">Put back</button>
+    </div></div></div>`;
+  } else if (member && archUI.has(id)) {
+    const how = archUI.get(id).how;
+    leaving = `<div class="lend"><form class="card ch12" id="archForm"><div class="ch12i">
+      <span class="lbl">Where did it go?</span>
+      <div class="past">${HOWS.map(([k, l]) => `<button type="button" class="chip ch6" data-how="${k}" aria-pressed="${how === k}"><span class="ch6i">${l}</span></button>`).join('')}</div>
+      <input id="archNote" type="text" placeholder="Note (optional), e.g. to whom" autocomplete="off">
+      <div class="muted" style="font-size:14px">Dated today. It leaves the library and its count, and friends no longer see it. Archived in the Show menu finds it again.</div>
+      <div class="acts"><button type="button" class="cancel tap" id="cancelArch">Cancel</button><button type="submit" class="btn-ink tap ch8" style="padding:0 26px">Archive</button></div>
+    </div></form></div>`;
+  } else if (member) {
+    leaving = `<div class="lend leave">
+      <button class="btn-line ch8 go-btn" id="toGo" aria-pressed="${!!p.toGo}"><span class="ch8i tap">${p.toGo ? 'Getting rid of it' : 'Mark to get rid of'}</span></button>
+      <button class="btn-line ch8" id="openArch"><span class="ch8i tap">Archive</span></button>
+    </div>`;
+  }
+
   const initials = (name) => /[぀-ヿ一-鿿]/.test(name) ? name[0]
     : name.split(/[\s.]+/).filter(Boolean).map((w) => w[0]).filter((c) => /\p{Lu}/u.test(c)).slice(0, 3).join('') || name[0];
   const peopleHtml = people.map((x) => {
@@ -493,7 +540,7 @@ function renderBook(id) {
     </section>
     ${fixPanelHtml(b)}
     <section class="intro">
-      ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}</div>` : ''}
+      ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}${member && b.archived ? ' · Archived' : member && p.toGo ? ' · Getting rid of' : ''}</div>` : ''}
       <h1 class="disp${b.title.length > 22 ? ' long' : ''}">${esc(b.title)}</h1>
       ${b.subtitle ? `<p class="subtitle">${esc(b.subtitle)}</p>` : ''}
       ${b.authors?.length ? `<div class="by">${esc(byLine(b))}</div>` : ''}
@@ -504,6 +551,7 @@ function renderBook(id) {
     ${readers}
     ${member ? `<div class="lend"><button class="btn-line ch8 hof-btn" id="hof" aria-pressed="${!!b.hallOfFame}" style="width:100%;height:56px"><span class="ch8i tap">${I.star}${b.hallOfFame ? 'In the Hall of Fame' : 'Add to the Hall of Fame'}</span></button></div>` : ''}
     ${lending}
+    ${leaving}
     <section class="block">
       <h2 class="disp">The edition</h2>
       <dl>${edition.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
@@ -557,6 +605,49 @@ function renderBook(id) {
     try { await savePrivate(id, { lentTo }); }
     catch (err) { S.priv.set(id, before); renderBook(id); toast('Couldn\'t save: ' + err.message); }
   });
+  // Getting rid of / archive
+  $('#toGo', el)?.addEventListener('click', async () => {
+    const before = S.priv.get(id) || {};
+    S.priv.set(id, { ...before, toGo: !before.toGo });
+    renderBook(id);
+    try { await savePrivate(id, { toGo: !before.toGo }); }
+    catch (err) { S.priv.set(id, before); renderBook(id); toast('Couldn\'t save: ' + err.message); }
+  });
+  $('#openArch', el)?.addEventListener('click', () => { archUI.set(id, { how: null }); renderBook(id); });
+  $('#cancelArch', el)?.addEventListener('click', () => { archUI.delete(id); renderBook(id); });
+  el.querySelectorAll('[data-how]').forEach((chip) => chip.addEventListener('click', () => {
+    archUI.get(id).how = chip.dataset.how;
+    el.querySelectorAll('[data-how]').forEach((c) => c.setAttribute('aria-pressed', c === chip));
+  }));
+  $('#archForm', el)?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const how = archUI.get(id)?.how;
+    if (!how) { toast('Pick where it went first.'); return; }
+    const before = S.priv.get(id) || {};
+    const fields = { archive: { how, note: $('#archNote').value.trim() || null, date: today() }, toGo: false };
+    // A book that's lent out ends its loan here (lost, or the borrower kept it).
+    if (before.lentTo) Object.assign(fields, { lentTo: null, lendHistory: [...(before.lendHistory || []), { ...before.lentTo, returned: null }] });
+    S.priv.set(id, { ...before, ...fields });
+    S.books.set(id, { ...b, archived: true });
+    archUI.delete(id); oddChanged();
+    renderBook(id);
+    try {
+      await Promise.all([updateBook(id, { archived: true }), savePrivate(id, fields)]);
+      toast('Archived. It\'s no longer in the library.');
+    } catch (err) { S.priv.set(id, before); S.books.set(id, b); oddChanged(); renderBook(id); toast('Couldn\'t save: ' + err.message); }
+  });
+  $('#unarchive', el)?.addEventListener('click', async () => {
+    const before = S.priv.get(id) || {};
+    S.priv.set(id, { ...before, archive: null });
+    S.books.set(id, { ...b, archived: false });
+    oddChanged();
+    renderBook(id);
+    try {
+      await Promise.all([updateBook(id, { archived: false }), savePrivate(id, { archive: null })]);
+      toast('Back in the library.');
+    } catch (err) { S.priv.set(id, before); S.books.set(id, b); oddChanged(); renderBook(id); toast('Couldn\'t save: ' + err.message); }
+  });
+
   $('#returned', el)?.addEventListener('click', async () => {
     const before = S.priv.get(id) || {};
     const lendHistory = [...(before.lendHistory || []), { ...before.lentTo, returned: today() }];
@@ -567,11 +658,11 @@ function renderBook(id) {
   });
 }
 
-const toFix = () => [...S.books.values()].filter((b) => b.needsFix || !b.cover);
+const toFix = () => shelfBooks().filter((b) => b.needsFix || !b.cover);
 
 // Printed books without paperback / hardcover (e.g. after "Mark as printed").
 // Most books are paperbacks, so that's the starting pick.
-const noBinding = () => [...S.books.values()].filter((b) => b.format !== 'ebook' && !b.binding);
+const noBinding = () => shelfBooks().filter((b) => b.format !== 'ebook' && !b.binding);
 const bindPick = new Map(); // id → choice on the To fix page, until saved
 
 // Books whose record looks odd (js/checks.js), leaving out the ones still waiting
@@ -580,7 +671,7 @@ const bindPick = new Map(); // id → choice on the To fix page, until saved
 let oddMemo = null;
 function looksOdd() {
   if (oddMemo?.books === S.books && oddMemo.n === oddMemo.books.size && !oddMemo.dirty) return oddMemo.list;
-  const all = [...S.books.values()];
+  const all = shelfBooks();
   const cx = checkContext(all);
   const list = all.filter((b) => !b.needsFix && b.cover).map((b) => ({ b, issues: checkBook(b, cx) })).filter((x) => x.issues.length);
   oddMemo = { books: S.books, n: S.books.size, list, dirty: false };
@@ -1527,7 +1618,7 @@ function renderAdd() {
       <h3>${A.dupes.exact ? 'Already in the library' : 'A book with this title is already in the library'}</h3>
       <div class="fix-list" style="margin:8px 0 0">${A.dupes.books.map((b) => `
         <a class="fix-row" href="#/book/${esc(b.id)}"><span class="cv">${coverBox(b, 44, 66)}</span>
-          <span style="flex:1;min-width:0"><span class="tt" style="display:block">${esc(b.title)}</span><span class="sub" style="display:block">${esc([byLine(b), b.publisher, b.year].filter(Boolean).join(' · '))}</span></span>${I.right}</a>`).join('')}</div>
+          <span style="flex:1;min-width:0"><span class="tt" style="display:block">${esc(b.title)}</span><span class="sub" style="display:block">${esc([byLine(b), b.publisher, b.year, b.archived ? 'Archived' : null].filter(Boolean).join(' · '))}</span></span>${I.right}</a>`).join('')}</div>
       <p class="hint" style="margin:12px 0 0">${A.dupes.exact ? 'Adding it again makes a second copy.' : 'Check it isn\'t the same copy before adding it.'}</p>
     </div></div>` : '';
 
@@ -1798,7 +1889,7 @@ function start() {
   let stopPrivate = null;
   onUser((u) => {
     S.user = u;
-    if (!u?.member) { S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; }
+    if (!u?.member) { S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; S.toGo = false; S.arch = false; }
     stopPrivate?.(); stopPrivate = null;
     S.priv = new Map();
     rerender();

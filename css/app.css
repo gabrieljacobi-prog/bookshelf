@@ -394,3 +394,9 @@ button.back { background: none; border: 0; color: var(--ink); }
 .bind-seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 .bind-save { margin: 16px 20px 0; display: flex; justify-content: flex-end; }
 .bind-save .btn-ink { height: 48px; padding: 0 24px; }
+
+/* Book page: getting rid of / archive */
+.leave { display: flex; gap: 10px; }
+.leave button { flex: 1; height: 56px; }
+.go-btn[aria-pressed="true"] > span { color: var(--accentText); }
+.chip[aria-pressed="true"] > span { background: var(--ink); color: var(--surface); }
