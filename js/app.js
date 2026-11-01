@@ -726,21 +726,30 @@ async function saveAuthor(id, fields, msg) {
   const a = S.authors.get(id);
   if (!a) return;
   const ops = [{ op: 'update', col: 'authors', id, data: fields }];
+  // Books that change with the record: a new name on every book they're on,
+  // a new sort name on the books where they're the first author.
   const bookUps = [];
-  if (fields.sortName && fields.sortName !== a.sortName) {
-    for (const b of S.books.values()) {
-      const first = (b.people || []).find(isMain);
-      if (first?.authorId === id) { ops.push({ op: 'update', col: 'books', id: b.id, data: { authorSort: fields.sortName } }); bookUps.push(b); }
+  const renamed = fields.name && fields.name !== a.name;
+  const resorted = fields.sortName && fields.sortName !== a.sortName;
+  for (const b of S.books.values()) {
+    const people = b.people || [];
+    if (!people.some((p) => p.authorId === id)) continue;
+    const change = {};
+    if (renamed) {
+      change.people = people.map((p) => (p.authorId === id ? { ...p, name: fields.name } : p));
+      change.authors = change.people.filter(isMain).map((p) => p.name);
     }
+    if (resorted && people.find(isMain)?.authorId === id) change.authorSort = fields.sortName;
+    if (Object.keys(change).length) { ops.push({ op: 'update', col: 'books', id: b.id, data: change }); bookUps.push([b, change]); }
   }
   S.authors = new Map(S.authors).set(id, { ...a, ...fields });
-  for (const b of bookUps) S.books.set(b.id, { ...b, authorSort: fields.sortName });
+  for (const [b, change] of bookUps) S.books.set(b.id, { ...b, ...change });
   try {
     await applyOps(ops);
     if (msg) toast(msg);
   } catch (e) {
     S.authors = new Map(S.authors).set(id, a);
-    for (const b of bookUps) S.books.set(b.id, b);
+    for (const [b] of bookUps) S.books.set(b.id, b);
     toast('Couldn\'t save: ' + e.message);
   }
 }
@@ -783,6 +792,7 @@ function renderAuthor(id) {
       const g = ui.gender ?? a.gender ?? '';
       about = `<form class="block aform" id="authorForm">
         <h2 class="disp">About</h2>
+        <div class="fr"><label class="lbl" for="af-name">Name</label><input id="af-name" name="name" value="${esc(a.name || '')}" autocomplete="off"></div>
         <div class="fr"><label class="lbl" for="af-nat">Nationality</label><input id="af-nat" name="nationality" value="${esc(a.nationality || '')}" placeholder="e.g. Brazilian" autocomplete="off"></div>
         <div class="fr"><span class="lbl">Gender</span>
           <div class="past">${GENDER_PICKS.map((k) => `<button type="button" class="chip ch6" data-g="${k}" aria-pressed="${g === k}"><span class="ch6i">${k}</span></button>`).join('')}</div>
@@ -793,7 +803,7 @@ function renderAuthor(id) {
           <input id="af-died" name="died" inputmode="numeric" value="${esc(a.died ?? '')}" placeholder="Died" aria-label="Died (year; minus for BC)">
         </div></div>
         <div class="fr"><label class="lbl" for="af-sort">Sort as</label><input id="af-sort" name="sortName" value="${esc(a.sortName || '')}" autocomplete="off"></div>
-        <p class="sec-hint" style="padding:6px 0 0">Sort as decides where their books go in the Author sort, e.g. “García Márquez, Gabriel”. Years: minus for BC.</p>
+        <p class="sec-hint" style="padding:6px 0 0">A new name is used on all their books. Sort as decides where their books go in the Author sort, e.g. “García Márquez, Gabriel”. Years: minus for BC.</p>
         <div class="acts"><button type="button" class="cancel tap" id="cancelAuthor">Cancel</button><button type="submit" class="btn-ink tap ch8" style="padding:0 26px"${ui.busy ? ' disabled' : ''}>Save</button></div>
       </form>`;
     } else if (ui.mode === 'look') {
@@ -885,6 +895,8 @@ function renderAuthor(id) {
     };
     const sn = String(f.get('sortName') || '').trim();
     if (sn) fields.sortName = sn;
+    const nm = String(f.get('name') || '').replace(/\s+/g, ' ').trim();
+    if (nm) fields.name = nm;
     setAuthorUI(id, { busy: true });
     await saveAuthor(id, fields, 'Saved.');
     authorUI.delete(id);
