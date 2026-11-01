@@ -28,7 +28,7 @@ const store = {
 const S = {
   books: new Map(), authors: new Map(), series: new Map(), priv: new Map(),
   loaded: false, user: null,
-  cat: 'All', sort: 'Recently added', q: '', searching: false, open: null,
+  cat: 'All', sort: 'Author', q: '', searching: false, open: null,
   hof: false, lang: 'All', orig: 'any', // filters anyone can use
   rf: { flor: 'any', ingrid: 'any' }, lent: false, toGo: false, arch: false, // member-only filters
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
