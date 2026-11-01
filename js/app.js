@@ -145,9 +145,16 @@ function compare(sort) {
   }
 }
 
+// Search text, worked out once per book. A sync replaces the book object, so an
+// edited book gets new text on its own.
+const hayOf = new WeakMap();
 function matches(b, tokens) {
   if (!tokens.length) return true;
-  const hay = norm([b.title, b.subtitle, b.seriesName, b.publisher, b.isbn, ...(b.people || []).map((p) => p.name)].join(' '));
+  let hay = hayOf.get(b);
+  if (hay === undefined) {
+    hay = norm([b.title, b.subtitle, b.seriesName, b.publisher, b.isbn, ...(b.people || []).map((p) => p.name)].join(' '));
+    hayOf.set(b, hay);
+  }
   return tokens.every((t) => hay.includes(t));
 }
 
@@ -215,8 +222,12 @@ function renderToolbar() {
         <button class="icon-btn" id="qx" aria-label="Close search">${I.x}</button>
       </div>`;
     const q = $('#q');
-    q.addEventListener('input', () => { S.q = q.value; renderList(); });
-    $('#qx').addEventListener('click', () => { S.searching = false; S.q = ''; renderToolbar(); renderList(); });
+    // Waits for a pause in typing; a typed letter that leaves the same books skips the redraw.
+    q.addEventListener('input', () => {
+      clearTimeout(searchT);
+      searchT = setTimeout(() => { S.q = q.value; renderList({ ifChanged: true }); }, 140);
+    });
+    $('#qx').addEventListener('click', () => { clearTimeout(searchT); S.searching = false; S.q = ''; renderToolbar(); renderList(); });
     q.focus();
     return;
   }
@@ -277,15 +288,20 @@ function langList() {
 const seg = (label, key, cur, opts) => `<div class="seg-row" role="group" aria-label="${esc(label)}"><span class="lbl">${esc(label)}</span><span class="seg">${opts.map(([k, l]) =>
   `<button role="menuitemradio" aria-checked="${cur === k}" data-seg="${key}:${k}">${l}</button>`).join('')}</span></div>`;
 
-function renderList() {
+let searchT, lastShown = '';
+function renderList({ ifChanged = false } = {}) {
   const list = $('#list');
   if (!list) return;
-  if (!S.loaded) { list.innerHTML = '<p class="empty">Opening the library…</p>'; return; }
+  if (!S.loaded) { list.innerHTML = '<p class="empty">Opening the library…</p>'; lastShown = ''; return; }
   const m = metrics();
   list.style.cssText = `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;`;
   const tokens = norm(S.q).split(/\s+/).filter(Boolean);
   const cmp = compare(S.sort);
   const books = [...S.books.values()].filter((b) => passesFilters(b) && matches(b, tokens)).sort(cmp);
+  // The heading says "Search results" or the filter, so it's part of what's shown.
+  const shown = `${tokens.length > 0}|${m.n}|${books.map((b) => b.id).join(',')}`;
+  if (ifChanged && shown === lastShown) return;
+  lastShown = shown;
   if (!books.length) {
     list.innerHTML = tokens.length || anyFilter()
       ? `<p class="empty">Nothing on the shelves matches that.${anyFilter() ? '<br><button class="clear-inline tap" data-clear="1">Clear filters</button>' : ''}</p>`
