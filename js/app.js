@@ -7,7 +7,7 @@ import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=3';
 import { coverFromUrl, coverFromImage } from './covers.js?v=4';
 import { cropImage } from './crop.js?v=5';
 import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=6';
-import { lookupPerson, lookupMany, fieldsFrom, wikidataUrl } from './wikidata.js?v=1';
+import { lookupPerson, lookupMany, fieldsFrom, wikidataUrl } from './wikidata.js?v=2';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -701,13 +701,25 @@ let authorShown = '';
 const setAuthorUI = (id, patch) => { authorUI.set(id, { ...(authorUI.get(id) || {}), ...patch }); };
 const byYear = (a, b) => (yr(a) ?? 9999) - (yr(b) ?? 9999) || titleKey(a).localeCompare(titleKey(b));
 
+// The reasons a Wikidata match is likely right (✓) or wrong (✕).
+const whyHtml = (c) => (c.why?.length ? `<ul class="why">${c.why.map((w) =>
+  `<li class="${w.strong ? 'strong' : w.good ? 'good' : 'bad'}">${w.good ? I.check : I.x}<span>${esc(w.text)}</span></li>`).join('')}</ul>` : '');
 // A found Wikidata person, as a row to pick.
-const candHtml = (c, attrs) => `
-  <button class="cand" ${attrs}>
+const candHtml = (c, attrs, extra = '') => `
+  <button class="cand${extra}" ${attrs}>
     <span class="cn">${esc(c.label)}</span>
-    ${c.about ? `<span class="ca">${esc(c.about)}</span>` : ''}
     <span class="cm">${esc(personMeta(c) || 'No nationality or gender on Wikidata')}</span>
+    ${c.about ? `<span class="ca">${esc(c.about)}</span>` : ''}
+    ${whyHtml(c)}
   </button>`;
+// A person as the lookup wants them: their name and the books they're on here.
+function personForLookup(id) {
+  const a = S.authors.get(id);
+  const e = peopleOnShelves().get(id);
+  const books = (e?.books || []).map((b) => ({ title: b.title, subtitle: b.subtitle, language: b.language, year: b.year,
+    role: (b.people || []).find((p) => p.authorId === id)?.role }));
+  return { id, name: a?.name || '', books };
+}
 
 // Save fields on an author record (and, for a new sort name, the books it sorts).
 async function saveAuthor(id, fields, msg) {
@@ -788,7 +800,7 @@ function renderAuthor(id) {
       const body = ui.loading ? '<p class="sec-hint" style="padding:0">Looking on Wikidata…</p>'
         : ui.error ? `<p class="sec-hint" style="padding:0">Couldn’t reach Wikidata (${esc(ui.error)}).</p>`
         : !ui.cands?.length ? '<p class="sec-hint" style="padding:0">Nobody on Wikidata by that name.</p>'
-        : `<p class="sec-hint" style="padding:0 0 10px">Which one is on your books?</p><div class="cands">${ui.cands.map((c, i) => candHtml(c, `data-cand="${i}"`)).join('')}</div>`;
+        : `<p class="sec-hint" style="padding:0 0 10px">${ui.level === 'certain' ? 'Wikidata has them on your books. Tap to use.' : ui.level === 'likely' ? 'Probably the first one. Tap the right one.' : 'Not sure which one. Tap the right one, if any.'}</p><div class="cands">${ui.cands.map((c, i) => candHtml(c, `data-cand="${i}"`, i === 0 && ui.level !== 'check' ? ' best' : '')).join('')}</div>`;
       about = `<section class="block"><h2 class="disp">Wikidata</h2>${body}
         <div class="acts">${ui.loading ? '' : '<button class="cancel tap" id="noWd">Not on Wikidata</button>'}<button class="cancel tap" id="cancelAuthor">Cancel</button></div>
       </section>`;
@@ -829,8 +841,8 @@ function renderAuthor(id) {
     setAuthorUI(id, { mode: 'look', loading: true, cands: null, error: null });
     rerenderA();
     try {
-      const r = await lookupPerson(name);
-      setAuthorUI(id, { loading: false, cands: r.cands });
+      const r = await lookupPerson(personForLookup(id));
+      setAuthorUI(id, { loading: false, cands: r.cands, level: r.level });
     } catch (e) { setAuthorUI(id, { loading: false, error: e.message }); }
     if (viewOf(location.hash) === 'author' && authorUI.get(id)?.mode === 'look') rerenderA();
   });
@@ -887,9 +899,18 @@ const toLookUp = () => {
 };
 
 // Results of the last Wikidata run, kept on this phone so leaving the page doesn't lose them.
-const LK = { running: false, prog: '', res: null, wrong: new Set(), saving: false };
-try { const j = JSON.parse(store.get('wd:look', 'null')); if (j) LK.res = new Map(j); } catch { /* none */ }
-const keepLK = () => store.set('wd:look', JSON.stringify(LK.res ? [...LK.res] : null));
+const LK = { running: false, prog: '', res: null, wrong: new Map(), saving: false, open: new Set() };
+try { const j = JSON.parse(store.get('wd:look2', 'null')); if (j) LK.res = new Map(j); } catch { /* none */ }
+const keepLK = () => store.set('wd:look2', JSON.stringify(LK.res ? [...LK.res] : null));
+// A result with the candidates turned down by "Not them" taken out.
+function lkResult(id) {
+  const r = LK.res?.get(id);
+  if (!r || r.error) return r;
+  const no = LK.wrong.get(id);
+  if (!no?.size) return r;
+  const cands = r.cands.filter((c) => !no.has(c.id));
+  return { level: cands.length ? 'check' : 'none', cands };
+}
 
 function renderLookup() {
   const el = $('#authors');
@@ -899,49 +920,65 @@ function renderLookup() {
   const on = peopleOnShelves();
   const pending = toLookUp().sort((x, y) => norm(x.sortName || x.name).localeCompare(norm(y.sortName || y.name)));
   const done = [...S.authors.values()].filter((a) => on.has(a.id) && (a.checked || a.lookedUp)).length;
-  const res = LK.res || new Map();
-  const sure = [], pick = [], none = [], untried = [];
+  const groups = { certain: [], likely: [], check: [], none: [] };
+  const untried = [];
   for (const a of pending) {
-    const r = res.get(a.id);
+    const r = lkResult(a.id);
     if (!r || r.error) untried.push(a);
-    else if (r.sure && !LK.wrong.has(a.id)) sure.push(a);
-    else if (r.cands.length) pick.push(a);
-    else none.push(a);
+    else groups[r.level]?.push(a);
   }
   // Where the person appears, so a name can be placed: "Translator · Baudolino and 2 more".
   const context = (a) => {
     const e = on.get(a.id);
     const b = e.books[0];
     const role = (b.people || []).find((p) => p.authorId === a.id)?.role;
-    return `${ROLES[role] || role} · ${b.title}${e.books.length > 1 ? ` and ${e.books.length - 1} more` : ''}`;
+    return `${ROLES[role] || role} of ${b.title}${e.books.length > 1 ? ` and ${e.books.length - 1} more` : ''}`;
   };
   const head = (a) => `<a class="tt" href="#/author/${esc(a.id)}">${esc(a.name)}</a><span class="sub">${esc(context(a))}</span>`;
-  const sureRow = (a) => {
-    const c = res.get(a.id).cands[0];
+  // Confirmed and probable: the match, its reasons, and a way to say no.
+  const matchRow = (a) => {
+    const c = lkResult(a.id).cands[0];
     return `<div class="lk-row">${head(a)}
-      <div class="lk-match"><span class="cm">${esc(personMeta(c) || 'No nationality or gender on Wikidata')}</span>
-        ${c.about || c.label !== a.name ? `<span class="ca">${esc([c.label !== a.name ? c.label : null, c.about].filter(Boolean).join(': '))}</span>` : ''}</div>
+      <div class="lk-match">
+        <span class="cm">${esc(personMeta(c) || 'No nationality or gender on Wikidata')}</span>
+        ${c.about || c.label !== a.name ? `<span class="ca">${esc([nameKeyDiffers(c.label, a.name) ? c.label : null, c.about].filter(Boolean).join(': '))}</span>` : ''}
+        ${whyHtml(c)}
+      </div>
       <button class="tap lk-not" data-wrong="${esc(a.id)}">Not them</button></div>`;
   };
-  const pickRow = (a) => `<div class="lk-row">${head(a)}
-      <div class="cands">${res.get(a.id).cands.map((c, i) => candHtml(c, `data-pick="${esc(a.id)}" data-i="${i}"`)).join('')}</div>
-      <button class="tap lk-not" data-none="${esc(a.id)}">None of these</button></div>`;
+  // Unsure: the best guess first, with a button; the others folded away.
+  const checkRow = (a) => {
+    const [best, ...rest] = lkResult(a.id).cands;
+    const open = LK.open.has(a.id);
+    return `<div class="lk-row">${head(a)}
+      <div class="lk-guess"><span class="lbl">Best guess</span>${candHtml(best, `data-pick="${esc(a.id)}" data-i="0"`, ' best')}</div>
+      ${rest.length ? (open
+        ? `<span class="lbl" style="margin-top:10px">Others with the name</span><div class="cands">${rest.map((c, i) => candHtml(c, `data-pick="${esc(a.id)}" data-i="${i + 1}"`)).join('')}</div>`
+        : `<button class="tap lk-not" data-more="${esc(a.id)}">${rest.length} other${rest.length === 1 ? '' : 's'} with the name</button>`) : ''}
+      <button class="tap lk-not" data-none="${esc(a.id)}">None of them</button></div>`;
+  };
   const busy = LK.running || LK.saving;
+  const saveAll = (key, list, label) => `<div class="bind-save"><button class="btn-ink tap ch8" data-saveall="${key}"${busy ? ' disabled' : ''}>${label}</button></div>`;
+  const { certain, likely, check, none } = groups;
 
   el.innerHTML = `
     ${back}
     <header class="page-head"><h1 class="disp">Authors</h1>
-      <p>${pending.length ? `Nationality, gender and years from Wikidata. ${pending.length} ${pending.length === 1 ? 'person' : 'people'} still to look up, ${done} done.` : `Everyone on the shelves is looked up (${done}). Open a person to change what’s there.`}</p></header>
+      <p>${pending.length ? `Nationality, gender and years from Wikidata. ${pending.length} ${pending.length === 1 ? 'person' : 'people'} to go, ${done} done.` : `Everyone on the shelves is looked up (${done}). Open a person to change what’s there.`}</p></header>
     ${untried.length ? `<div class="lk-run">
       <button class="btn-ink tap ch8" id="runLook"${busy ? ' disabled' : ''}>${LK.running ? esc(LK.prog || 'Starting…') : `Look up ${untried.length === pending.length ? '' : 'the other '}${untried.length} ${untried.length === 1 ? 'person' : 'people'}`}</button>
-      <p class="sec-hint" style="padding:10px 0 0">${LK.running ? 'Keep the app open; it takes a minute or two.' : 'Nothing is saved until you choose.'}</p></div>` : ''}
-    ${sure.length ? `<div class="section-head"><span class="name">Matched</span><span class="of">${sure.length}</span></div>
-      <p class="sec-hint">Same name, and known for books. Tap Not them for any that look wrong, then save the rest.</p>
-      <div class="lk-list">${sure.map(sureRow).join('')}</div>
-      <div class="bind-save"><button class="btn-ink tap ch8" id="saveSure"${busy ? ' disabled' : ''}>Save ${sure.length} ${sure.length === 1 ? 'match' : 'matches'}</button></div>` : ''}
-    ${pick.length ? `<div class="section-head"><span class="name">Pick one</span><span class="of">${pick.length}</span></div>
-      <p class="sec-hint">More than one person with the name, or not clearly the one who writes. Tap the right one; it’s saved at once.</p>
-      <div class="lk-list">${pick.map(pickRow).join('')}</div>` : ''}
+      <p class="sec-hint" style="padding:10px 0 0">${LK.running ? 'Keep the app open; it takes two or three minutes.' : 'It checks each name against the books they’re on here. Nothing is saved until you choose.'}</p></div>` : ''}
+    ${certain.length ? `<div class="section-head"><span class="name">Confirmed by your books</span><span class="of">${certain.length}</span></div>
+      <p class="sec-hint">Wikidata lists each of them on a book they’re on here. Safe to save in one go.</p>
+      ${saveAll('certain', certain, `Save all ${certain.length}`)}
+      <div class="lk-list" style="margin-top:16px">${certain.map(matchRow).join('')}</div>` : ''}
+    ${likely.length ? `<div class="section-head"><span class="name">Probably right</span><span class="of">${likely.length}</span></div>
+      <p class="sec-hint">Same name, known for the kind of work they did on your books, and no one else like them. Skim the ✕ lines; tap Not them where it’s wrong, then save the rest.</p>
+      <div class="lk-list">${likely.map(matchRow).join('')}</div>
+      ${saveAll('likely', likely, `Save these ${likely.length}`)}` : ''}
+    ${check.length ? `<div class="section-head"><span class="name">Check these</span><span class="of">${check.length}</span></div>
+      <p class="sec-hint">Not sure. Tap the person who’s on your books; it’s saved at once.</p>
+      <div class="lk-list">${check.map(checkRow).join('')}</div>` : ''}
     ${none.length ? `<div class="section-head"><span class="name">Not found</span><span class="of">${none.length}</span></div>
       <p class="sec-hint">Nobody on Wikidata by these names. Open a person to fill it in by hand, or set them aside.</p>
       <div class="lk-list">${none.map((a) => `<div class="lk-row">${head(a)}</div>`).join('')}</div>
@@ -963,8 +1000,9 @@ function renderLookup() {
   $('#runLook', el)?.addEventListener('click', async () => {
     LK.running = true; LK.prog = 'Starting…'; again();
     try {
-      const got = await lookupMany(untried.map((a) => ({ id: a.id, name: a.name })), (d, n, phase) => {
-        LK.prog = phase === 'search' ? `Searching ${d} of ${n}…` : 'Reading details…';
+      const got = await lookupMany(untried.map((a) => personForLookup(a.id)), (d, n, phase) => {
+        LK.prog = phase === 'search' ? `Searching ${d} of ${n}…` : phase === 'details' ? 'Reading details…'
+          : phase === 'books' ? 'Checking your books…' : `Looking up unclear ones, ${d} of ${n}…`;
         const b = $('#runLook'); if (b) b.textContent = LK.prog;
       });
       LK.res = new Map([...(LK.res || new Map()), ...got]);
@@ -975,15 +1013,26 @@ function renderLookup() {
     LK.running = false;
     if (viewOf(location.hash) === 'authors') again();
   });
-  el.querySelectorAll('[data-wrong]').forEach((b) => b.addEventListener('click', () => { LK.wrong.add(b.dataset.wrong); again(); }));
-  $('#saveSure', el)?.addEventListener('click', () => saveMany(sure.map((a) => [a.id, fieldsFrom(res.get(a.id).cands[0])]), `Saved ${sure.length}.`));
+  el.querySelectorAll('[data-wrong]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.wrong, c = lkResult(id).cands[0];
+    if (!LK.wrong.has(id)) LK.wrong.set(id, new Set());
+    LK.wrong.get(id).add(c.id);
+    again();
+  }));
+  el.querySelectorAll('[data-more]').forEach((b) => b.addEventListener('click', () => { LK.open.add(b.dataset.more); again(); }));
+  el.querySelectorAll('[data-saveall]').forEach((b) => b.addEventListener('click', () => {
+    const list = groups[b.dataset.saveall];
+    saveMany(list.map((a) => [a.id, fieldsFrom(lkResult(a.id).cands[0])]), `Saved ${list.length}.`);
+  }));
   el.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
-    const c = res.get(b.dataset.pick)?.cands[Number(b.dataset.i)];
+    const c = lkResult(b.dataset.pick)?.cands[Number(b.dataset.i)];
     if (c) saveMany([[b.dataset.pick, fieldsFrom(c)]], 'Saved.');
   }));
   el.querySelectorAll('[data-none]').forEach((b) => b.addEventListener('click', () => saveMany([[b.dataset.none, { lookedUp: true, wikidata: null }]], 'Set aside. Fill it in on their page.')));
   $('#setAside', el)?.addEventListener('click', () => saveMany(none.map((a) => [a.id, { lookedUp: true, wikidata: null }]), `Set ${none.length} aside.`));
 }
+// A Wikidata name worth showing: only when it isn't just the same name spelled the same way.
+const nameKeyDiffers = (a, b) => norm(a).replace(/[^a-z0-9]/g, '') !== norm(b).replace(/[^a-z0-9]/g, '');
 
 const toFix = () => shelfBooks().filter((b) => b.needsFix || !b.cover);
 
