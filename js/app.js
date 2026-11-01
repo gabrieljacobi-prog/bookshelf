@@ -7,6 +7,7 @@ import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=3';
 import { coverFromUrl, coverFromImage } from './covers.js?v=4';
 import { cropImage } from './crop.js?v=5';
 import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=6';
+import { lookupPerson, lookupMany, fieldsFrom, wikidataUrl } from './wikidata.js?v=1';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -80,6 +81,13 @@ const isMember = () => !!S.user?.member;
 
 // Translated = someone on the book is credited as translator (the only sign we have).
 const isTranslated = (b) => (b.people || []).some((x) => x.role === 'translator');
+const initials = (name) => /[぀-ヿ一-鿿]/.test(name) ? name[0]
+  : name.split(/[\s.]+/).filter(Boolean).map((w) => w[0]).filter((c) => /\p{Lu}/u.test(c)).slice(0, 3).join('') || name[0];
+const yearText = (y) => (y < 0 ? `${-y} BC` : String(y));
+// "1929–2018", "born 1971", "died 1321"
+const lifeYears = (a) => (a.born != null && a.died != null ? `${yearText(a.born)}–${yearText(a.died)}`
+  : a.born != null ? `born ${yearText(a.born)}` : a.died != null ? `died ${yearText(a.died)}` : '');
+const personMeta = (a) => [a.nationality, a.gender, lifeYears(a)].filter(Boolean).join(' · ');
 // Archived = no longer in the house. Kept (with where it went, in private) but
 // off the shelves: not counted, not checked, not shown to friends.
 const onShelf = (b) => !b.archived;
@@ -284,6 +292,7 @@ function renderToolbar() {
         <div class="mh lbl">Checking books</div>
         <button data-go="#/fix">To fix</button>
         <button data-go="#/names">People &amp; publishers</button>
+        <button data-go="#/authors">Authors</button>
         ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
         <div class="mh lbl">Temporary tools</div>
         <a href="import/" class="tool">Import</a>
@@ -308,12 +317,25 @@ const seg = (label, key, cur, opts) => `<div class="seg-row" role="group" aria-l
   `<button role="menuitemradio" aria-checked="${cur === k}" data-seg="${key}:${k}">${l}</button>`).join('')}</span></div>`;
 
 let searchT, lastShown = '';
+// The shelf grid (library, a person's page): rows of covers on a shelf line, captions below.
+const gridStyle = (m) => `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;`;
+function rowsHtml(books, m, sub = byLine) {
+  const rows = [];
+  for (let j = 0; j < books.length; j += m.n) rows.push(books.slice(j, j + m.n));
+  return `<div class="rows">${rows.map((row) => `
+    <div>
+      <div class="shelf">${row.map((b) => `<a href="#/book/${esc(b.id)}" aria-label="${esc(b.title)}${b.authors?.length ? ' by ' + esc(byLine(b)) : ''}">${coverBox(b, m.W, m.H)}</a>`).join('')}</div>
+      <div class="caps">${row.map((b) => `<a href="#/book/${esc(b.id)}" tabindex="-1" aria-hidden="true"><div class="t">${esc(b.title)}</div><div class="a">${esc(sub(b))}</div></a>`).join('')}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
 function renderList({ ifChanged = false } = {}) {
   const list = $('#list');
   if (!list) return;
   if (!S.loaded) { list.innerHTML = '<p class="empty">Opening the library…</p>'; lastShown = ''; return; }
   const m = metrics();
-  list.style.cssText = `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;`;
+  list.style.cssText = gridStyle(m);
   const tokens = norm(S.q).split(/\s+/).filter(Boolean);
   const cmp = compare(S.sort);
   const books = [...S.books.values()].filter((b) => passesFilters(b) && matches(b, tokens)).sort(cmp);
@@ -327,8 +349,6 @@ function renderList({ ifChanged = false } = {}) {
       : '<p class="empty">No books here yet.</p>';
     return;
   }
-  const rows = [];
-  for (let j = 0; j < books.length; j += m.n) rows.push(books.slice(j, j + m.n));
   // A category gets its numbered heading ("03 Comics"); "All" is one continuous
   // shelf, so a sort like Recently added mixes the categories.
   const ci = CATS.indexOf(S.cat);
@@ -341,12 +361,7 @@ function renderList({ ifChanged = false } = {}) {
   const html = `
     <section class="section">
       ${head}
-      <div class="rows">${rows.map((row) => `
-        <div>
-          <div class="shelf">${row.map((b) => `<a href="#/book/${esc(b.id)}" aria-label="${esc(b.title)}${b.authors?.length ? ' by ' + esc(byLine(b)) : ''}">${coverBox(b, m.W, m.H)}</a>`).join('')}</div>
-          <div class="caps">${row.map((b) => `<a href="#/book/${esc(b.id)}" tabindex="-1" aria-hidden="true"><div class="t">${esc(b.title)}</div><div class="a">${esc(byLine(b))}</div></a>`).join('')}</div>
-        </div>`).join('')}
-      </div>
+      ${rowsHtml(books, m)}
     </section>`;
   list.innerHTML = html;
   observeCovers(list);
@@ -444,7 +459,11 @@ function renderBook(id) {
   const p = S.priv.get(id) || {};
   const readBy = p.readBy || [];
   const people = b.people || [];
-  const translators = people.filter((x) => x.role === 'translator').map((x) => x.name);
+  // Names open the person's page, with everything of theirs on the shelves.
+  const nameLinks = (list) => list.map((x) => (x.authorId ? `<a class="nl" href="#/author/${esc(x.authorId)}">${esc(x.name)}</a>` : esc(x.name)));
+  const main = people.filter(isMain);
+  const byHtml = main.length ? nameLinks(main).join(', ') : esc(byLine(b));
+  const translators = nameLinks(people.filter((x) => x.role === 'translator'));
 
   // Cover on its plinth: fit a 220 × 300 box, never cropped.
   const r = b.cover?.w ? b.cover.w / b.cover.h : 0.66;
@@ -520,19 +539,17 @@ function renderBook(id) {
     </div>`;
   }
 
-  const initials = (name) => /[぀-ヿ一-鿿]/.test(name) ? name[0]
-    : name.split(/[\s.]+/).filter(Boolean).map((w) => w[0]).filter((c) => /\p{Lu}/u.test(c)).slice(0, 3).join('') || name[0];
   const peopleHtml = people.map((x) => {
     const a = S.authors.get(x.authorId) || {};
-    const meta = [a.nationality, a.gender, a.checked ? 'checked' : null].filter(Boolean).join(' · ');
-    return `<div class="person">
+    const meta = personMeta(a);
+    const inner = `
       <div class="arch" aria-hidden="true">${esc(initials(x.name))}</div>
-      <div style="flex:1;min-width:0"><div class="lbl">${ROLES[x.role] || x.role}</div><div class="nm">${esc(x.name)}</div><div class="meta">${meta ? esc(meta) : 'Not looked up yet'}</div></div>
-    </div>`;
+      <div style="flex:1;min-width:0"><div class="lbl">${ROLES[x.role] || x.role}</div><div class="nm">${esc(x.name)}</div><div class="meta">${meta ? esc(meta) : 'Not looked up yet'}</div></div>`;
+    return x.authorId ? `<a class="person" href="#/author/${esc(x.authorId)}">${inner}${I.right}</a>` : `<div class="person">${inner}</div>`;
   }).join('');
 
   el.innerHTML = `
-    <div class="book-top"><a class="back tap" href="${backTo.href}" id="back">${I.back}${backTo.label}</a>${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
+    <div class="book-top">${backLink()}${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
     <section class="plinth">
       ${coverHtml}
       <div class="line" aria-hidden="true"></div>
@@ -543,8 +560,8 @@ function renderBook(id) {
       ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}${member && b.archived ? ' · Archived' : member && p.toGo ? ' · Getting rid of' : ''}</div>` : ''}
       <h1 class="disp${b.title.length > 22 ? ' long' : ''}">${esc(b.title)}</h1>
       ${b.subtitle ? `<p class="subtitle">${esc(b.subtitle)}</p>` : ''}
-      ${b.authors?.length ? `<div class="by">${esc(byLine(b))}</div>` : ''}
-      ${translators.length ? `<p class="tr">Translated by ${esc(translators.join(' and '))}</p>` : ''}
+      ${b.authors?.length || main.length ? `<div class="by">${byHtml}</div>` : ''}
+      ${translators.length ? `<p class="tr">Translated by ${translators.join(' and ')}</p>` : ''}
       ${b.firstYear ? `<p class="tr">First published ${b.firstYear < 0 ? `${-b.firstYear} BC` : b.firstYear}</p>` : ''}
       ${seriesRow}
     </section>
@@ -658,6 +675,316 @@ function renderBook(id) {
   });
 }
 
+// --- People: a person's page, and looking authors up on Wikidata -----------------------
+
+// Which of a person's books go under which heading, in this order. A book where
+// they're both writer and artist is listed once, under the first.
+const ROLE_GROUPS = [
+  [['author', 'writer'], 'Written'], [['artist'], 'Drawn'], [['illustrator'], 'Illustrated'],
+  [['editor'], 'Edited'], [['translator'], 'Translated'], [['photographer'], 'Photographed'],
+];
+// Everyone on the shelves: authorId → { roles: Set, books: [book] }.
+function peopleOnShelves() {
+  const out = new Map();
+  for (const b of shelfBooks()) for (const p of b.people || []) {
+    if (!p.authorId) continue;
+    const e = out.get(p.authorId) || { roles: new Set(), books: [] };
+    e.roles.add(p.role);
+    if (!e.books.includes(b)) e.books.push(b);
+    out.set(p.authorId, e);
+  }
+  return out;
+}
+const GENDER_PICKS = ['woman', 'man', 'non-binary'];
+const authorUI = new Map(); // authorId → { mode: 'edit' | 'look', loading, cands, error, busy, gender }
+let authorShown = '';
+const setAuthorUI = (id, patch) => { authorUI.set(id, { ...(authorUI.get(id) || {}), ...patch }); };
+const byYear = (a, b) => (yr(a) ?? 9999) - (yr(b) ?? 9999) || titleKey(a).localeCompare(titleKey(b));
+
+// A found Wikidata person, as a row to pick.
+const candHtml = (c, attrs) => `
+  <button class="cand" ${attrs}>
+    <span class="cn">${esc(c.label)}</span>
+    ${c.about ? `<span class="ca">${esc(c.about)}</span>` : ''}
+    <span class="cm">${esc(personMeta(c) || 'No nationality or gender on Wikidata')}</span>
+  </button>`;
+
+// Save fields on an author record (and, for a new sort name, the books it sorts).
+async function saveAuthor(id, fields, msg) {
+  const a = S.authors.get(id);
+  if (!a) return;
+  const ops = [{ op: 'update', col: 'authors', id, data: fields }];
+  const bookUps = [];
+  if (fields.sortName && fields.sortName !== a.sortName) {
+    for (const b of S.books.values()) {
+      const first = (b.people || []).find(isMain);
+      if (first?.authorId === id) { ops.push({ op: 'update', col: 'books', id: b.id, data: { authorSort: fields.sortName } }); bookUps.push(b); }
+    }
+  }
+  S.authors = new Map(S.authors).set(id, { ...a, ...fields });
+  for (const b of bookUps) S.books.set(b.id, { ...b, authorSort: fields.sortName });
+  try {
+    await applyOps(ops);
+    if (msg) toast(msg);
+  } catch (e) {
+    S.authors = new Map(S.authors).set(id, a);
+    for (const b of bookUps) S.books.set(b.id, b);
+    toast('Couldn\'t save: ' + e.message);
+  }
+}
+
+function renderAuthor(id) {
+  const el = $('#author');
+  const a = S.authors.get(id);
+  const mine = peopleOnShelves().get(id);
+  const books = mine?.books || [];
+  const top = `<div class="book-top">${backLink()}</div>`;
+  if (!a && !books.length) {
+    el.innerHTML = `${top}<p class="empty">${S.loaded ? 'This person isn’t on the shelves.' : 'Opening…'}</p>`;
+    return;
+  }
+  const member = isMember();
+  const name = a?.name || books[0].people.find((p) => p.authorId === id)?.name || '';
+  const ui = authorUI.get(id) || {};
+  const roles = [...(mine?.roles || [])].sort((x, y) => EDIT_ROLES.indexOf(x) - EDIT_ROLES.indexOf(y)).map((r) => ROLES[r] || r);
+  const meta = a ? personMeta(a) : '';
+
+  // Their books, by what they did on them, oldest work first.
+  const placed = new Set();
+  const groups = ROLE_GROUPS.map(([rs, label]) => {
+    const list = books.filter((b) => !placed.has(b.id) && (b.people || []).some((p) => p.authorId === id && rs.includes(p.role))).sort(byYear);
+    list.forEach((b) => placed.add(b.id));
+    return [label, list];
+  }).filter(([, l]) => l.length);
+  const m = metrics();
+  const yearOf = (b) => { const y = yr(b); return y == null ? byLine(b) : yearText(y); };
+  const shelves = groups.map(([label, list]) => `
+    <section class="section">
+      <div class="section-head"><span class="name">${groups.length > 1 || label !== 'Written' ? label : 'On the shelves'}</span><span class="of">${list.length}</span></div>
+      ${rowsHtml(list, m, label === 'Written' ? yearOf : byLine)}
+    </section>`).join('');
+
+  // Members: what we know, where it came from, and the ways to change it.
+  let about = '';
+  if (member && a) {
+    if (ui.mode === 'edit') {
+      const g = ui.gender ?? a.gender ?? '';
+      about = `<form class="block aform" id="authorForm">
+        <h2 class="disp">About</h2>
+        <div class="fr"><label class="lbl" for="af-nat">Nationality</label><input id="af-nat" name="nationality" value="${esc(a.nationality || '')}" placeholder="e.g. Brazilian" autocomplete="off"></div>
+        <div class="fr"><span class="lbl">Gender</span>
+          <div class="past">${GENDER_PICKS.map((k) => `<button type="button" class="chip ch6" data-g="${k}" aria-pressed="${g === k}"><span class="ch6i">${k}</span></button>`).join('')}</div>
+          <input id="af-gender" name="gender" value="${esc(GENDER_PICKS.includes(g) ? '' : g)}" placeholder="Or in your own words" autocomplete="off">
+        </div>
+        <div class="fr"><span class="lbl">Years</span><div class="fy">
+          <input id="af-born" name="born" inputmode="numeric" value="${esc(a.born ?? '')}" placeholder="Born" aria-label="Born (year; minus for BC)">
+          <input id="af-died" name="died" inputmode="numeric" value="${esc(a.died ?? '')}" placeholder="Died" aria-label="Died (year; minus for BC)">
+        </div></div>
+        <div class="fr"><label class="lbl" for="af-sort">Sort as</label><input id="af-sort" name="sortName" value="${esc(a.sortName || '')}" autocomplete="off"></div>
+        <p class="sec-hint" style="padding:6px 0 0">Sort as decides where their books go in the Author sort, e.g. “García Márquez, Gabriel”. Years: minus for BC.</p>
+        <div class="acts"><button type="button" class="cancel tap" id="cancelAuthor">Cancel</button><button type="submit" class="btn-ink tap ch8" style="padding:0 26px"${ui.busy ? ' disabled' : ''}>Save</button></div>
+      </form>`;
+    } else if (ui.mode === 'look') {
+      const body = ui.loading ? '<p class="sec-hint" style="padding:0">Looking on Wikidata…</p>'
+        : ui.error ? `<p class="sec-hint" style="padding:0">Couldn’t reach Wikidata (${esc(ui.error)}).</p>`
+        : !ui.cands?.length ? '<p class="sec-hint" style="padding:0">Nobody on Wikidata by that name.</p>'
+        : `<p class="sec-hint" style="padding:0 0 10px">Which one is on your books?</p><div class="cands">${ui.cands.map((c, i) => candHtml(c, `data-cand="${i}"`)).join('')}</div>`;
+      about = `<section class="block"><h2 class="disp">Wikidata</h2>${body}
+        <div class="acts">${ui.loading ? '' : '<button class="cancel tap" id="noWd">Not on Wikidata</button>'}<button class="cancel tap" id="cancelAuthor">Cancel</button></div>
+      </section>`;
+    } else {
+      const rows = [['Nationality', a.nationality], ['Gender', a.gender], ['Born', a.born != null ? yearText(a.born) : null],
+        ['Died', a.died != null ? yearText(a.died) : null], ['Sort as', a.sortName]].filter(([, v]) => v);
+      const source = a.wikidata ? `From <a href="${wikidataUrl(a.wikidata)}" target="_blank" rel="noopener">Wikidata</a>${a.source === 'hand' ? ', edited by hand' : ''}.`
+        : a.checked ? 'Filled in by hand.' : a.lookedUp ? 'Not on Wikidata.' : 'Not looked up yet.';
+      about = `<section class="block">
+        <h2 class="disp">About</h2>
+        ${rows.length ? `<dl>${rows.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
+        <p class="sec-hint" style="padding:12px 0 0">${source}</p>
+        <div class="aacts">
+          <button class="btn-line ch8" id="lookWd"><span class="ch8i tap">${a.wikidata ? 'Look up again' : 'Look up on Wikidata'}</span></button>
+          <button class="btn-line ch8" id="editAuthor"><span class="ch8i tap">Edit</span></button>
+        </div>
+      </section>`;
+    }
+  }
+
+  el.innerHTML = `
+    ${top}
+    <header class="ahead">
+      <div class="arch big" aria-hidden="true">${esc(initials(name))}</div>
+      ${roles.length ? `<div class="lbl">${esc(roles.join(' · '))}</div>` : ''}
+      <h1 class="disp${name.length > 22 ? ' long' : ''}">${esc(name)}</h1>
+      ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
+    </header>
+    ${about}
+    <div class="agrid" style="${gridStyle(m)}">${shelves || '<p class="empty">None of their books are on the shelves now.</p>'}</div>
+    <div style="height:40px"></div>`;
+  observeCovers(el);
+
+  const rerenderA = () => { const y = window.scrollY; renderAuthor(id); window.scrollTo(0, y); };
+  $('#editAuthor', el)?.addEventListener('click', () => { setAuthorUI(id, { mode: 'edit', gender: undefined }); rerenderA(); });
+  $('#cancelAuthor', el)?.addEventListener('click', () => { authorUI.delete(id); rerenderA(); });
+  $('#lookWd', el)?.addEventListener('click', async () => {
+    setAuthorUI(id, { mode: 'look', loading: true, cands: null, error: null });
+    rerenderA();
+    try {
+      const r = await lookupPerson(name);
+      setAuthorUI(id, { loading: false, cands: r.cands });
+    } catch (e) { setAuthorUI(id, { loading: false, error: e.message }); }
+    if (viewOf(location.hash) === 'author' && authorUI.get(id)?.mode === 'look') rerenderA();
+  });
+  el.querySelectorAll('[data-cand]').forEach((btn) => btn.addEventListener('click', async () => {
+    const c = authorUI.get(id)?.cands?.[Number(btn.dataset.cand)];
+    if (!c) return;
+    authorUI.delete(id);
+    const p = saveAuthor(id, fieldsFrom(c), 'Saved.');
+    rerenderA();
+    await p; rerenderA();
+  }));
+  $('#noWd', el)?.addEventListener('click', async () => {
+    authorUI.delete(id);
+    const p = saveAuthor(id, { lookedUp: true, wikidata: null }, 'Noted. Fill it in with Edit.');
+    rerenderA();
+    await p; rerenderA();
+  });
+  el.querySelectorAll('[data-g]').forEach((chip) => chip.addEventListener('click', () => {
+    const on = chip.getAttribute('aria-pressed') !== 'true';
+    el.querySelectorAll('[data-g]').forEach((c) => c.setAttribute('aria-pressed', String(on && c === chip)));
+    $('#af-gender', el).value = '';
+  }));
+  $('#af-gender', el)?.addEventListener('input', () => el.querySelectorAll('[data-g]').forEach((c) => c.setAttribute('aria-pressed', 'false')));
+  $('#authorForm', el)?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.currentTarget);
+    const num = (k) => {
+      const v = String(f.get(k) || '').trim();
+      let n = parseInt(v.replace(/[^\d-]/g, ''), 10);
+      if (!Number.isFinite(n)) return null;
+      if (/bc$/i.test(v) && n > 0) n = -n; // "384 BC"
+      return n;
+    };
+    const picked = el.querySelector('[data-g][aria-pressed="true"]')?.dataset.g;
+    const fields = {
+      nationality: String(f.get('nationality') || '').trim() || null,
+      gender: picked || String(f.get('gender') || '').trim() || null,
+      born: num('born'), died: num('died'),
+      checked: true, lookedUp: true, source: 'hand',
+    };
+    const sn = String(f.get('sortName') || '').trim();
+    if (sn) fields.sortName = sn;
+    setAuthorUI(id, { busy: true });
+    await saveAuthor(id, fields, 'Saved.');
+    authorUI.delete(id);
+    rerenderA();
+  });
+}
+
+// Everyone on the shelves not looked up yet.
+const toLookUp = () => {
+  const on = peopleOnShelves();
+  return [...S.authors.values()].filter((a) => on.has(a.id) && !a.checked && !a.lookedUp);
+};
+
+// Results of the last Wikidata run, kept on this phone so leaving the page doesn't lose them.
+const LK = { running: false, prog: '', res: null, wrong: new Set(), saving: false };
+try { const j = JSON.parse(store.get('wd:look', 'null')); if (j) LK.res = new Map(j); } catch { /* none */ }
+const keepLK = () => store.set('wd:look', JSON.stringify(LK.res ? [...LK.res] : null));
+
+function renderLookup() {
+  const el = $('#authors');
+  const back = `<div class="page-top"><a class="back tap" href="#/fix">${I.back}To fix</a></div>`;
+  if (!isMember()) { el.innerHTML = back + '<p class="empty">Sign in from the library menu to look up authors.</p>'; return; }
+  if (!S.loaded) { el.innerHTML = back + '<p class="empty">Opening…</p>'; return; }
+  const on = peopleOnShelves();
+  const pending = toLookUp().sort((x, y) => norm(x.sortName || x.name).localeCompare(norm(y.sortName || y.name)));
+  const done = [...S.authors.values()].filter((a) => on.has(a.id) && (a.checked || a.lookedUp)).length;
+  const res = LK.res || new Map();
+  const sure = [], pick = [], none = [], untried = [];
+  for (const a of pending) {
+    const r = res.get(a.id);
+    if (!r || r.error) untried.push(a);
+    else if (r.sure && !LK.wrong.has(a.id)) sure.push(a);
+    else if (r.cands.length) pick.push(a);
+    else none.push(a);
+  }
+  // Where the person appears, so a name can be placed: "Translator · Baudolino and 2 more".
+  const context = (a) => {
+    const e = on.get(a.id);
+    const b = e.books[0];
+    const role = (b.people || []).find((p) => p.authorId === a.id)?.role;
+    return `${ROLES[role] || role} · ${b.title}${e.books.length > 1 ? ` and ${e.books.length - 1} more` : ''}`;
+  };
+  const head = (a) => `<a class="tt" href="#/author/${esc(a.id)}">${esc(a.name)}</a><span class="sub">${esc(context(a))}</span>`;
+  const sureRow = (a) => {
+    const c = res.get(a.id).cands[0];
+    return `<div class="lk-row">${head(a)}
+      <div class="lk-match"><span class="cm">${esc(personMeta(c) || 'No nationality or gender on Wikidata')}</span>
+        ${c.about || c.label !== a.name ? `<span class="ca">${esc([c.label !== a.name ? c.label : null, c.about].filter(Boolean).join(': '))}</span>` : ''}</div>
+      <button class="tap lk-not" data-wrong="${esc(a.id)}">Not them</button></div>`;
+  };
+  const pickRow = (a) => `<div class="lk-row">${head(a)}
+      <div class="cands">${res.get(a.id).cands.map((c, i) => candHtml(c, `data-pick="${esc(a.id)}" data-i="${i}"`)).join('')}</div>
+      <button class="tap lk-not" data-none="${esc(a.id)}">None of these</button></div>`;
+  const busy = LK.running || LK.saving;
+
+  el.innerHTML = `
+    ${back}
+    <header class="page-head"><h1 class="disp">Authors</h1>
+      <p>${pending.length ? `Nationality, gender and years from Wikidata. ${pending.length} ${pending.length === 1 ? 'person' : 'people'} still to look up, ${done} done.` : `Everyone on the shelves is looked up (${done}). Open a person to change what’s there.`}</p></header>
+    ${untried.length ? `<div class="lk-run">
+      <button class="btn-ink tap ch8" id="runLook"${busy ? ' disabled' : ''}>${LK.running ? esc(LK.prog || 'Starting…') : `Look up ${untried.length === pending.length ? '' : 'the other '}${untried.length} ${untried.length === 1 ? 'person' : 'people'}`}</button>
+      <p class="sec-hint" style="padding:10px 0 0">${LK.running ? 'Keep the app open; it takes a minute or two.' : 'Nothing is saved until you choose.'}</p></div>` : ''}
+    ${sure.length ? `<div class="section-head"><span class="name">Matched</span><span class="of">${sure.length}</span></div>
+      <p class="sec-hint">Same name, and known for books. Tap Not them for any that look wrong, then save the rest.</p>
+      <div class="lk-list">${sure.map(sureRow).join('')}</div>
+      <div class="bind-save"><button class="btn-ink tap ch8" id="saveSure"${busy ? ' disabled' : ''}>Save ${sure.length} ${sure.length === 1 ? 'match' : 'matches'}</button></div>` : ''}
+    ${pick.length ? `<div class="section-head"><span class="name">Pick one</span><span class="of">${pick.length}</span></div>
+      <p class="sec-hint">More than one person with the name, or not clearly the one who writes. Tap the right one; it’s saved at once.</p>
+      <div class="lk-list">${pick.map(pickRow).join('')}</div>` : ''}
+    ${none.length ? `<div class="section-head"><span class="name">Not found</span><span class="of">${none.length}</span></div>
+      <p class="sec-hint">Nobody on Wikidata by these names. Open a person to fill it in by hand, or set them aside.</p>
+      <div class="lk-list">${none.map((a) => `<div class="lk-row">${head(a)}</div>`).join('')}</div>
+      <div class="bind-save"><button class="btn-line ch8" id="setAside" style="height:44px"${busy ? ' disabled' : ''}><span class="ch8i tap" style="padding:0 16px">Set these ${none.length} aside</span></button></div>` : ''}
+    <div style="height:40px"></div>`;
+
+  const again = () => { const y = window.scrollY; renderLookup(); window.scrollTo(0, y); };
+  const saveMany = async (list, msg) => {
+    LK.saving = true; again();
+    const before = new Map(list.map(([id]) => [id, S.authors.get(id)]));
+    const next = new Map(S.authors);
+    for (const [id, f] of list) next.set(id, { ...next.get(id), ...f });
+    S.authors = next;
+    try { await applyOps(list.map(([id, data]) => ({ op: 'update', col: 'authors', id, data }))); toast(msg); }
+    catch (e) { const back = new Map(S.authors); for (const [id, a] of before) back.set(id, a); S.authors = back; toast('Couldn\'t save: ' + e.message); }
+    LK.saving = false;
+    if (viewOf(location.hash) === 'authors') again();
+  };
+  $('#runLook', el)?.addEventListener('click', async () => {
+    LK.running = true; LK.prog = 'Starting…'; again();
+    try {
+      const got = await lookupMany(untried.map((a) => ({ id: a.id, name: a.name })), (d, n, phase) => {
+        LK.prog = phase === 'search' ? `Searching ${d} of ${n}…` : 'Reading details…';
+        const b = $('#runLook'); if (b) b.textContent = LK.prog;
+      });
+      LK.res = new Map([...(LK.res || new Map()), ...got]);
+      keepLK();
+      const errs = [...got.values()].filter((r) => r.error).length;
+      if (errs) toast(`Couldn’t reach Wikidata for ${errs}. Run it again for those.`);
+    } catch (e) { toast('Couldn’t reach Wikidata: ' + e.message); }
+    LK.running = false;
+    if (viewOf(location.hash) === 'authors') again();
+  });
+  el.querySelectorAll('[data-wrong]').forEach((b) => b.addEventListener('click', () => { LK.wrong.add(b.dataset.wrong); again(); }));
+  $('#saveSure', el)?.addEventListener('click', () => saveMany(sure.map((a) => [a.id, fieldsFrom(res.get(a.id).cands[0])]), `Saved ${sure.length}.`));
+  el.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
+    const c = res.get(b.dataset.pick)?.cands[Number(b.dataset.i)];
+    if (c) saveMany([[b.dataset.pick, fieldsFrom(c)]], 'Saved.');
+  }));
+  el.querySelectorAll('[data-none]').forEach((b) => b.addEventListener('click', () => saveMany([[b.dataset.none, { lookedUp: true, wikidata: null }]], 'Set aside. Fill it in on their page.')));
+  $('#setAside', el)?.addEventListener('click', () => saveMany(none.map((a) => [a.id, { lookedUp: true, wikidata: null }]), `Set ${none.length} aside.`));
+}
+
 const toFix = () => shelfBooks().filter((b) => b.needsFix || !b.cover);
 
 // Printed books without paperback / hardcover (e.g. after "Mark as printed").
@@ -718,6 +1045,7 @@ function renderFixList() {
   const noCover = all.filter((b) => !b.needsFix && !b.cover);
   const odd = looksOdd().slice().sort((x, y) => compare('Author')(x.b, y.b));
   const merges = mergeCount();
+  const lookN = toLookUp().length;
   const sub = (b) => esc([byLine(b), b.publisher, b.year].filter(Boolean).join(' · '));
   const row = (b) => `
     <a class="fix-row" href="#/book/${esc(b.id)}">
@@ -754,8 +1082,11 @@ function renderFixList() {
       <p class="sec-hint">Set to paperback. Change the hardcovers, then save them all.</p>
       <div class="fix-list">${unbound.map(bindRow).join('')}</div>
       <div class="bind-save"><button class="btn-ink tap ch8" id="saveBind">Save ${unbound.length} book${unbound.length === 1 ? '' : 's'}</button></div>` : ''}
-    ${merges ? `<div class="fix-list" style="margin-top:${unbound.length ? 32 : 4}px"><a class="fix-row" href="#/names"><span style="flex:1;min-width:0"><span class="tt" style="display:block">People &amp; publishers</span><span class="sub" style="display:block">${merges} to tidy up</span></span>${I.right}</a></div>` : ''}
-    ${wrong.length ? `<div class="section-head" style="padding-top:${merges ? 40 : 12}px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
+    ${merges || lookN ? `<div class="fix-list" style="margin-top:${unbound.length ? 32 : 4}px">
+      ${merges ? `<a class="fix-row" href="#/names"><span style="flex:1;min-width:0"><span class="tt" style="display:block">People &amp; publishers</span><span class="sub" style="display:block">${merges} to tidy up</span></span>${I.right}</a>` : ''}
+      ${lookN ? `<a class="fix-row" href="#/authors"><span style="flex:1;min-width:0"><span class="tt" style="display:block">Authors</span><span class="sub" style="display:block">${lookN} to look up on Wikidata</span></span>${I.right}</a>` : ''}
+    </div>` : ''}
+    ${wrong.length ? `<div class="section-head" style="padding-top:${merges || lookN ? 40 : 12}px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
     ${noCover.length ? `<div class="section-head"><span class="name">No cover</span><span class="of">${noCover.length}</span></div><div class="fix-list">${noCover.map(row).join('')}</div>` : ''}
     ${odd.length ? `<div class="section-head"><span class="name">Looks odd</span><span class="of">${odd.length}</span></div>
       <p class="sec-hint">Things in the details that look like mistakes from the old app or a book source. Fix them here, in Edit, or tap It’s fine.</p>
@@ -1814,28 +2145,43 @@ document.addEventListener('visibilitychange', () => {
 
 // --- Routing --------------------------------------------------------------------------------
 
-const VIEWS = ['library', 'book', 'fix', 'add', 'names'];
+const VIEWS = ['library', 'book', 'author', 'authors', 'fix', 'add', 'names'];
 function show(v) {
   for (const x of VIEWS) $('#' + x).hidden = x !== v;
 }
 const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix' : h.startsWith('#/names') ? 'names'
+  : h.startsWith('#/authors') ? 'authors' : h.startsWith('#/author/') ? 'author'
   : h.startsWith('#/add/details') ? 'adddetails' : h.startsWith('#/add') ? 'add' : 'library');
 
 let libScroll = 0, fixScroll = 0;
-// The book page's back link returns to where the book was opened from.
-let backTo = { href: '#/', label: 'Library' };
+// Book and person pages lead to each other. The back link returns one step:
+// to the page this one was opened from, and from the first one to where the
+// trail started (Library, To fix, Add book, Authors).
+let trail = ['#/'];
 let lastView = 'library';
+const START = { fix: '#/fix', add: '#/add', adddetails: '#/add', authors: '#/authors', names: '#/names' };
+function followTrail(h, v, prev) {
+  if (v === 'edit') { if (prev === 'fix') trail = ['#/fix']; return; } // after saving, back leads to To fix
+  if (v !== 'book' && v !== 'author') return;
+  if (h === trail.at(-1)) return;
+  if (trail.length > 1 && h === trail.at(-2)) { trail.pop(); return; } // went back
+  if (prev === 'book' || prev === 'author' || prev === 'edit') { trail.push(h); if (trail.length > 40) trail.splice(1, 1); return; }
+  trail = [START[prev] || '#/', h];
+}
+function backLink() {
+  const h = trail.length > 1 ? trail.at(-2) : '#/';
+  const short = (t) => (t.length > 26 ? t.slice(0, 24).trimEnd() + '…' : t);
+  const label = h === '#/' ? 'Library' : h === '#/fix' ? 'To fix' : h === '#/add' ? 'Add another' : h === '#/authors' ? 'Authors'
+    : h === '#/names' ? 'People & publishers'
+    : h.startsWith('#/book/') ? short(S.books.get(decodeURIComponent(h.slice(7)))?.title || 'Book')
+    : h.startsWith('#/author/') ? short(S.authors.get(decodeURIComponent(h.slice(9)))?.name || 'Person') : 'Back';
+  return `<a class="back tap" href="${esc(h)}" id="back">${I.back}<span class="bl">${esc(label)}</span></a>`;
+}
 function route() {
   oddChanged();
   const h = location.hash;
   const v = viewOf(h);
-  // Edit opened straight from To fix ("Looks odd"): after saving, the book's back link returns there.
-  if (v === 'edit' && lastView === 'fix') backTo = { href: '#/fix', label: 'To fix' };
-  if (v === 'book' && lastView !== 'book' && lastView !== 'edit') {
-    backTo = lastView === 'fix' ? { href: '#/fix', label: 'To fix' }
-      : lastView === 'adddetails' || lastView === 'add' ? { href: '#/add', label: 'Add another' }
-      : { href: '#/', label: 'Library' };
-  }
+  followTrail(h, v, lastView);
   const prevView = lastView;
   lastView = v;
   if (v !== 'add') endScan();
@@ -1856,6 +2202,13 @@ function route() {
     return;
   }
   if (v === 'names') { show('names'); renderNames(); window.scrollTo(0, 0); return; }
+  if (v === 'author') {
+    show('author');
+    if (prevView !== 'author' || authorShown !== h) authorUI.clear();
+    authorShown = h;
+    renderAuthor(decodeURIComponent(h.slice(9))); window.scrollTo(0, 0); return;
+  }
+  if (v === 'authors') { show('authors'); renderLookup(); window.scrollTo(0, 0); return; }
   // "#/?q=…" opens the library searching (used by the series row).
   const q = h.match(/[?&]q=([^&]*)/);
   if (q) { S.q = decodeURIComponent(q[1]); S.searching = true; S.cat = 'All'; libScroll = 0; }
@@ -1933,6 +2286,8 @@ function rerender() {
   else if (v === 'book') renderBook(decodeURIComponent(location.hash.slice(7)));
   else if (v === 'fix') renderFixList();
   else if (v === 'names') renderNames();
+  else if (v === 'author') renderAuthor(decodeURIComponent(location.hash.slice(9)));
+  else if (v === 'authors') renderLookup();
   else renderLibrary();
   window.scrollTo(0, y);
 }

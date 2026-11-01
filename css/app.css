@@ -400,3 +400,45 @@ button.back { background: none; border: 0; color: var(--ink); }
 .leave button { flex: 1; height: 56px; }
 .go-btn[aria-pressed="true"] > span { color: var(--accentText); }
 .chip[aria-pressed="true"] > span { background: var(--ink); color: var(--surface); }
+
+/* People: names on the book page open the person's page. */
+.intro .nl { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.intro .nl:active { text-decoration-color: var(--ink); }
+a.person { text-decoration: none; color: inherit; }
+.back .bl { display: inline-block; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; }
+
+/* A person's page */
+.ahead { padding: 20px 20px 8px; }
+.ahead .arch.big { width: 92px; height: 120px; padding-bottom: 16px; font-size: 28px; margin-bottom: 22px; }
+.ahead h1 { margin: 10px 0 10px; font-size: 46px; line-height: 1.04; letter-spacing: -.01em; overflow-wrap: break-word; }
+.ahead h1.long { font-size: 38px; }
+.ahead .meta { margin: 0; font-size: 18px; font-style: italic; color: var(--muted); min-height: 1.3em; }
+#author .block { padding-top: 24px; }
+#author .acts { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+#author .cancel { height: 44px; padding: 0 12px; background: none; border: 0; color: var(--muted); }
+#author .past { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0 4px; }
+.aacts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.aacts .btn-line { height: 44px; }
+.aacts .btn-line > span { padding: 0 16px; }
+.agrid > .section:first-child .section-head { padding-top: 32px; }
+
+/* Wikidata candidates */
+.cands { display: flex; flex-direction: column; gap: 8px; }
+.cand { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 12px 14px; background: var(--surface); border: 1px solid var(--rule); color: var(--ink); font: inherit; text-align: left;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.cand:active { border-color: var(--ink); }
+.cand .cn { font-size: 17px; }
+.cand .ca, .lk-match .ca { font-size: 14px; font-style: italic; color: var(--muted); line-height: 1.3; }
+.cand .cm, .lk-match .cm { font-size: 15px; }
+
+/* Authors page */
+.lk-run { margin: 4px 20px 8px; }
+.lk-run .btn-ink { height: 52px; padding: 0 24px; }
+.lk-list { border-bottom: 1px solid var(--rule); margin: 0 20px; }
+.lk-row { display: flex; flex-direction: column; gap: 4px; padding: 14px 0; border-top: 1px solid var(--rule); }
+.lk-row .tt { font-size: 18px; line-height: 1.25; text-decoration: none; }
+.lk-row .sub { font-size: 14px; color: var(--muted); }
+.lk-row .cands { margin-top: 8px; }
+.lk-match { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding-left: 12px; border-left: 1px solid var(--rule); }
+.lk-not { align-self: flex-start; min-height: 40px; padding: 0; background: none; border: 0; color: var(--accentText); }
+#author .sec-hint { margin: 0; }
