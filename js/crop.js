@@ -4,7 +4,7 @@
 //
 // cropImage(fileOrUrl) → a canvas (cropped), the whole image (as a canvas), or
 // null when cancelled. The result goes on to coverFromImage() in covers.js.
-import { loadImage, photoCanvas } from './covers.js?v=3';
+import { loadImage, photoCanvas } from './covers.js?v=4';
 
 const WORK = 2400; // long edge of the working copy (phone photos can be 4000+ px)
 const OUT = 1600;  // long edge of the result; the large cover is never bigger

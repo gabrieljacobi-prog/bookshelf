@@ -4,7 +4,7 @@ import {
   getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp, query, where, getDoc,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
-import { lookupAll, firstPublished } from './lookup.js?v=12';
+import { lookupAll, firstPublished } from './lookup.js?v=13';
 
 import { cleanExport } from './import-clean.js?v=2';
 

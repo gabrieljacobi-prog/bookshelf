@@ -1,8 +1,9 @@
 import { firebaseConfig } from './firebase-config.js?v=3';
 
-// Book metadata lookup: Google Books → Open Library → LIBRIS.
-// Each source returns a normalised record or null. lookupAll() runs them in
-// parallel and merges the results, preferring LIBRIS for Swedish ISBNs.
+// Book metadata lookup by ISBN: Open Library and LIBRIS (and BrasilAPI for
+// Brazilian ISBNs) together, Google Books only when those miss, Amazon covers as
+// a last resort. Each source returns a normalised record or null; lookupAll()
+// merges them, preferring LIBRIS for Swedish ISBNs.
 
 const LANG3 = { eng: 'en', por: 'pt', swe: 'sv', dut: 'nl', nld: 'nl', jpn: 'ja', spa: 'es', fre: 'fr', fra: 'fr', ger: 'de', deu: 'de', ita: 'it', dan: 'da', nor: 'no', pol: 'pl' };
 
@@ -241,11 +242,6 @@ export function coverLoads(url, ms = 7000) {
   });
 }
 
-async function firstWorkingCover(recs) {
-  for (const r of recs) if (r && !r.error && r.cover && (await coverLoads(r.cover))) return r.cover;
-  return null;
-}
-
 // Open Library + LIBRIS (+ BrasilAPI for Brazilian ISBNs) run together.
 // Google is asked only when they miss the book or have no cover that loads;
 // its ISBN search proved slow and inconsistent. Never throws.
@@ -257,7 +253,8 @@ export async function lookupAll(isbn, { all = false } = {}) {
   const firstRound = [brasil, openlibrary, librisRes];
   const found = firstRound.some((r) => r && !r.error);
   // Drop cover URLs that don't load, so the record only lists real covers.
-  for (const r of firstRound) if (r && !r.error && r.cover && !(await coverLoads(r.cover))) r.cover = null;
+  // Checked together: one at a time, a slow source added seconds to every scan.
+  await Promise.all(firstRound.map(async (r) => { if (r && !r.error && r.cover && !(await coverLoads(r.cover))) r.cover = null; }));
   const hasCover = firstRound.some((r) => r && !r.error && r.cover);
   let google = { skipped: true };
   if (all || !found || !hasCover) {

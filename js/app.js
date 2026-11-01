@@ -1,16 +1,21 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=9';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=10';
 import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=2';
 import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=2';
-import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=12';
-import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=2';
-import { coverFromUrl, coverFromImage } from './covers.js?v=3';
-import { cropImage } from './crop.js?v=4';
-import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=5';
+import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=13';
+import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=3';
+import { coverFromUrl, coverFromImage } from './covers.js?v=4';
+import { cropImage } from './crop.js?v=5';
+import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=6';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
-const LANGS = { en: 'English', pt: 'Portuguese', sv: 'Swedish', nl: 'Dutch', ja: 'Japanese' };
+// Every language the app knows (the edit form offers them in this order; the
+// lookups can also return the Scandinavian and Polish codes).
+const LANGS = {
+  en: 'English', pt: 'Portuguese', sv: 'Swedish', nl: 'Dutch', ja: 'Japanese', es: 'Spanish', fr: 'French',
+  de: 'German', it: 'Italian', da: 'Danish', no: 'Norwegian', pl: 'Polish',
+};
 const ROLES = { author: 'Author', writer: 'Writer', artist: 'Artist', illustrator: 'Illustrator', translator: 'Translator', editor: 'Editor', photographer: 'Photographer' };
 const READERS = [['flor', 'Flor'], ['ingrid', 'Ingrid']];
 
@@ -970,7 +975,7 @@ function wireFixPanel(el, id) {
 // (nationality and gender come later from Wikidata); new series get a series record.
 
 const EDIT_ROLES = ['author', 'writer', 'artist', 'illustrator', 'translator', 'editor', 'photographer'];
-const EDIT_LANGS = [['en', 'English'], ['pt', 'Portuguese'], ['sv', 'Swedish'], ['nl', 'Dutch'], ['ja', 'Japanese'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian']];
+const EDIT_LANGS = Object.entries(LANGS);
 const editDraft = new Map(); // bookId → people rows while editing
 
 function renderEdit(id) {
@@ -1187,7 +1192,7 @@ function wireEditCover(id) {
     const author = editDraft.get(id)?.find((p) => p.name && (p.role === 'author' || p.role === 'writer'))?.name || b.authors?.[0];
     ev.currentTarget.href = imageSearchUrl({ title, authors: author ? [author] : [] });
   });
-    sec.querySelector('[data-ec="keep"]')?.addEventListener('click', () => setCover(id, { pending: null, pick: null, status: null }));
+  sec.querySelector('[data-ec="keep"]')?.addEventListener('click', () => setCover(id, { pending: null, pick: null, status: null }));
   sec.querySelector('[data-ec="search"]')?.addEventListener('click', async () => {
     const pub = $('#f-publisher').value.trim(), yr = $('#f-year').value.trim();
     const isbnTyped = $('#f-isbn').value.replace(/[^0-9Xx]/g, '');
@@ -1743,7 +1748,6 @@ function route() {
   if (v === 'adddetails') { show('book'); renderEdit(NEW); window.scrollTo(0, 0); return; }
   if (v === 'edit') { show('book'); renderEdit(decodeURIComponent(h.slice(7, -5))); window.scrollTo(0, 0); return; }
   if (v === 'book') { show('book'); editDraft.clear(); coverDraft.clear(); renderBook(decodeURIComponent(h.slice(7))); window.scrollTo(0, 0); return; }
-  if (h.startsWith('#/wall')) { location.replace('#/fix'); return; } // old bookmarks
   if (v === 'fix') {
     show('fix'); renderFixList();
     // Back from a book opened in the list: return to where it was.

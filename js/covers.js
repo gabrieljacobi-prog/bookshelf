@@ -122,8 +122,3 @@ export async function photoCanvas(file, maxEdge) {
     return c;
   } finally { URL.revokeObjectURL(url); }
 }
-
-// From a photo or file picked on the phone.
-export async function coverFromFile(file) {
-  return { mode: 'copied', ...both(await photoCanvas(file, LARGE.edge), 'Photo') };
-}

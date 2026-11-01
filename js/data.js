@@ -12,7 +12,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, getDocsFromCache, getDoc, onSnapshot, getDocFromCache, setDoc, updateDoc, writeBatch,
-  query, where, getCountFromServer, serverTimestamp, Timestamp,
+  query, where, getCountFromServer, serverTimestamp, Timestamp, CACHE_SIZE_UNLIMITED,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js?v=3';
 
@@ -25,8 +25,11 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 let db;
 try {
-  // Room for the covers too, so the catalogue itself isn't pushed out of the cache.
-  db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager(), cacheSizeBytes: 200 * 1024 * 1024 }) });
+  // No size limit: with a limit, large covers could push the catalogue out of the
+  // cache (Firestore clears the oldest entries first), and the next open would
+  // then read the whole catalogue again. Catalogue plus every cover stays well
+  // under what the browser allows a site.
+  db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager(), cacheSizeBytes: CACHE_SIZE_UNLIMITED }) });
 } catch {
   db = initializeFirestore(app, {}); // private windows can't keep a cache
 }
@@ -55,7 +58,9 @@ export const signOutUser = () => signOut(auth);
 //   is complete; then only documents with `updatedAt` after the last sync are
 //   asked for, live. An open with nothing new costs about 1–2 reads.
 // - Otherwise (first visit on this phone, or the cache cleared or incomplete)
-//   the whole collection is read once and listened to, as before.
+//   the whole collection is read once; then it switches to listening for
+//   changes only. (A listener left on the whole collection would read all of
+//   it again after the phone had slept for half an hour.)
 // Removed authors are kept as { deleted: true } so other phones see the removal;
 // they're left out of what the app gets.
 const sinceKey = (n) => 'sync:' + n;
@@ -76,6 +81,7 @@ function syncCollection(name, onData, onError) {
   };
   const emit = (fromCache) => { emitted = true; onData(live(), { fromCache }); };
 
+  const changedSince = (ms) => query(col, where('updatedAt', '>', Timestamp.fromMillis(ms - MARGIN)));
   const listen = (q, full) => {
     if (stopped) return;
     unsub = onSnapshot(q, (snap) => {
@@ -83,13 +89,17 @@ function syncCollection(name, onData, onError) {
         if (ch.type === 'removed') { if (full) raw.delete(ch.doc.id); } // a pending local write briefly drops out of a "since" query
         else take(ch.doc);
       }
+      const { fromCache, hasPendingWrites } = snap.metadata;
+      const synced = !fromCache && !hasPendingWrites;
       // Synced up to the newest stamp seen. If nothing is stamped yet (documents
       // from before stamping), any later change will carry a server time after
       // now, so now (an hour back, for a phone clock that's off) is safe.
-      if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites) setSince(name, latest || Date.now() - 3_600_000);
+      const to = latest || Date.now() - 3_600_000;
+      if (synced) setSince(name, to);
       // This phone's own unconfirmed writes: the app has already applied those.
-      if (emitted && snap.metadata.hasPendingWrites) return;
-      emit(snap.metadata.fromCache);
+      if (!(emitted && hasPendingWrites)) emit(fromCache);
+      // The whole collection is here now: from here on, only what changes.
+      if (full && synced) { unsub(); listen(changedSince(to), false); }
     }, onError);
   };
 
@@ -103,7 +113,7 @@ function syncCollection(name, onData, onError) {
       let complete = true;
       try { complete = (await getCountFromServer(col)).data().count === cached.length; }
       catch { /* offline or out of reads: keep the copy and try the live query */ }
-      if (complete) { listen(query(col, where('updatedAt', '>', Timestamp.fromMillis(since - MARGIN))), false); return; }
+      if (complete) { listen(changedSince(since), false); return; }
       raw.clear(); latest = 0;
     }
     listen(col, true);
@@ -142,7 +152,27 @@ const stamp = (fields) => ({ ...fields, updatedAt: serverTimestamp() });
 // the book's (the book list always comes fresh from the server), it is fetched
 // again. Covers changed before versions existed have no v: those (all marked
 // verified) are fetched from the server once per device, remembered in localStorage.
+// The image comes back as a blob: link (a short address for the picture held in
+// memory), not the base64 text itself: the grid is redrawn as HTML, and pasting
+// hundreds of base64 covers into it on every redraw was slow. Thumbs stay for the
+// visit; only the last few large ones are kept.
 const coverMem = new Map();
+const LARGE_KEPT = 4;
+const largeKeys = [];
+async function blobUrl(dataUrl) {
+  if (!dataUrl) return null;
+  try { return URL.createObjectURL(await (await fetch(dataUrl)).blob()); }
+  catch { return dataUrl; }
+}
+function keepLarge(key) {
+  largeKeys.push(key);
+  while (largeKeys.length > LARGE_KEPT) {
+    const old = largeKeys.shift();
+    const p = coverMem.get(old);
+    coverMem.delete(old);
+    p?.then((u) => { if (u?.startsWith('blob:')) URL.revokeObjectURL(u); }, () => {});
+  }
+}
 const REFRESHED = 'coversRefreshed';
 let refreshed;
 function legacyDone(id) {
@@ -173,10 +203,11 @@ export async function coverImage(bookId, size = 'thumb', book = null) {
       snap = await getDoc(ref);
       if (legacy) markLegacyDone(id);
     }
-    return snap.exists() ? snap.data().image : null;
+    return blobUrl(snap.exists() ? snap.data().image : null);
   })();
   coverMem.set(key, p);
   p.catch(() => coverMem.delete(key));
+  if (size === 'large') keepLarge(key);
   return p;
 }
 
@@ -215,27 +246,29 @@ export async function applyOps(ops) {
   }
 }
 
-// A new cover copied into Firestore: thumb + large, and the book's cover field.
-export async function saveCover(bookId, { thumb, large, w, h, source }, extra = {}) {
+// A copied cover ({ thumb, large, w, h, source }) into a batch: both cover docs,
+// with a new version. Returns the book's cover field.
+function putCover(b, bookId, { thumb, large, w, h, source }) {
   const v = Date.now();
-  const b = writeBatch(db);
   b.set(doc(db, 'covers', bookId), { image: thumb, size: 'thumb', bookId, v });
   b.set(doc(db, 'covers', bookId + '-l'), { image: large, size: 'large', bookId, v });
-  b.update(doc(db, 'books', bookId), stamp({ cover: { id: bookId, w, h, source, v }, ...extra }));
+  return { id: bookId, w, h, source, v };
+}
+
+// A new cover copied into Firestore: thumb + large, and the book's cover field.
+export async function saveCover(bookId, cover, extra = {}) {
+  const b = writeBatch(db);
+  const field = putCover(b, bookId, cover);
+  b.update(doc(db, 'books', bookId), stamp({ cover: field, ...extra }));
   await b.commit();
-  return v;
+  return field.v;
 }
 
 // The edit form: the book plus any new author or series records, and a new
 // copied cover ({ thumb, large, w, h, source }) if one was chosen, in one batch.
 export async function saveEdits(bookId, fields, newAuthors = [], newSeries = null, cover = null) {
   const b = writeBatch(db);
-  const v = Date.now();
-  if (cover) {
-    b.set(doc(db, 'covers', bookId), { image: cover.thumb, size: 'thumb', bookId, v });
-    b.set(doc(db, 'covers', bookId + '-l'), { image: cover.large, size: 'large', bookId, v });
-    fields = { ...fields, cover: { id: bookId, w: cover.w, h: cover.h, source: cover.source, v } };
-  }
+  if (cover) fields = { ...fields, cover: putCover(b, bookId, cover) };
   b.update(doc(db, 'books', bookId), stamp(fields));
   for (const a of newAuthors) { const { id, ...rest } = a; b.set(doc(db, 'authors', id), stamp(rest)); }
   if (newSeries) b.set(doc(db, 'series', newSeries.id), stamp({ name: newSeries.name }));
@@ -249,12 +282,7 @@ export const newBookId = () => doc(collection(db, 'books')).id;
 
 export async function addBook(bookId, fields, newAuthors = [], newSeries = null, cover = null, priv = null) {
   const b = writeBatch(db);
-  const v = Date.now();
-  if (cover) {
-    b.set(doc(db, 'covers', bookId), { image: cover.thumb, size: 'thumb', bookId, v });
-    b.set(doc(db, 'covers', bookId + '-l'), { image: cover.large, size: 'large', bookId, v });
-    fields = { ...fields, cover: { id: bookId, w: cover.w, h: cover.h, source: cover.source, v } };
-  }
+  if (cover) fields = { ...fields, cover: putCover(b, bookId, cover) };
   b.set(doc(db, 'books', bookId), stamp(fields));
   for (const a of newAuthors) { const { id, ...rest } = a; b.set(doc(db, 'authors', id), stamp(rest)); }
   if (newSeries) b.set(doc(db, 'series', newSeries.id), stamp({ name: newSeries.name }));
