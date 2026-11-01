@@ -544,7 +544,7 @@ function renderBook(id) {
     const meta = personMeta(a);
     const inner = `
       <div class="arch" aria-hidden="true">${esc(initials(x.name))}</div>
-      <div style="flex:1;min-width:0"><div class="lbl">${ROLES[x.role] || x.role}</div><div class="nm">${esc(x.name)}</div><div class="meta">${meta ? esc(meta) : 'Not looked up yet'}</div></div>`;
+      <div style="flex:1;min-width:0"><div class="lbl">${ROLES[x.role] || x.role}</div><div class="nm">${esc(x.name)}</div>${meta || !SIDE_ROLES.includes(x.role) ? `<div class="meta">${meta ? esc(meta) : 'Not looked up yet'}</div>` : ''}</div>`;
     return x.authorId ? `<a class="person" href="#/author/${esc(x.authorId)}">${inner}${I.right}</a>` : `<div class="person">${inner}</div>`;
   }).join('');
 
@@ -893,9 +893,13 @@ function renderAuthor(id) {
 }
 
 // Everyone on the shelves not looked up yet.
+// Only people who made the books: someone who only translated or edited is left out
+// (their page can still look them up, one at a time).
+const SIDE_ROLES = ['translator', 'editor'];
+const madeBooks = (e) => !!e && [...e.roles].some((r) => !SIDE_ROLES.includes(r));
 const toLookUp = () => {
   const on = peopleOnShelves();
-  return [...S.authors.values()].filter((a) => on.has(a.id) && !a.checked && !a.lookedUp);
+  return [...S.authors.values()].filter((a) => madeBooks(on.get(a.id)) && !a.checked && !a.lookedUp);
 };
 
 // Results of the last Wikidata run, kept on this phone so leaving the page doesn't lose them.
@@ -919,7 +923,7 @@ function renderLookup() {
   if (!S.loaded) { el.innerHTML = back + '<p class="empty">Opening…</p>'; return; }
   const on = peopleOnShelves();
   const pending = toLookUp().sort((x, y) => norm(x.sortName || x.name).localeCompare(norm(y.sortName || y.name)));
-  const done = [...S.authors.values()].filter((a) => on.has(a.id) && (a.checked || a.lookedUp)).length;
+  const done = [...S.authors.values()].filter((a) => madeBooks(on.get(a.id)) && (a.checked || a.lookedUp)).length;
   const groups = { certain: [], likely: [], check: [], none: [] };
   const untried = [];
   for (const a of pending) {
@@ -964,7 +968,7 @@ function renderLookup() {
   el.innerHTML = `
     ${back}
     <header class="page-head"><h1 class="disp">Authors</h1>
-      <p>${pending.length ? `Nationality, gender and years from Wikidata. ${pending.length} ${pending.length === 1 ? 'person' : 'people'} to go, ${done} done.` : `Everyone on the shelves is looked up (${done}). Open a person to change what’s there.`}</p></header>
+      <p>${pending.length ? `Nationality, gender and years from Wikidata, for the people who wrote or drew the books (translators and editors are left out). ${pending.length} ${pending.length === 1 ? 'person' : 'people'} to go, ${done} done.` : `Everyone on the shelves is looked up (${done}). Open a person to change what’s there.`}</p></header>
     ${untried.length ? `<div class="lk-run">
       <button class="btn-ink tap ch8" id="runLook"${busy ? ' disabled' : ''}>${LK.running ? esc(LK.prog || 'Starting…') : `Look up ${untried.length === pending.length ? '' : 'the other '}${untried.length} ${untried.length === 1 ? 'person' : 'people'}`}</button>
       <p class="sec-hint" style="padding:10px 0 0">${LK.running ? 'Keep the app open and the screen on; it takes about five minutes.' : 'It checks each name against the books they’re on here. Nothing is saved until you choose.'}</p></div>` : ''}
