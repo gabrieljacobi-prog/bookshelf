@@ -553,15 +553,9 @@ function renderBook(id) {
 
 const toFix = () => [...S.books.values()].filter((b) => b.needsFix || !b.cover);
 
-// Printed books without paperback / hardcover. Pre-picked from Gabriel's answers
-// of 31 Oct (all paperback except these); the two "ebooks" are printed copies.
-const HARDCOVER_31OCT = ['vampire: the masquerade', 'fallet med den forsvunna hallonsylten', 'fallet med de mystiska pingvinerna',
-  'svampar i naturen', 'planeten, klimatet', 'kanslostormar och spanska korvar', 'framtidsfabriken och balkongfallet',
-  'incidente em antares', 'o tunel', 'lord lyllian', 'call of cthulhu'];
-const NOT_EBOOKS_31OCT = ['call of cthulhu', 'baudolino'];
-const noBinding = () => [...S.books.values()].filter((b) => (b.format !== 'ebook' && !b.binding)
-  || (b.format === 'ebook' && NOT_EBOOKS_31OCT.includes(norm(b.title))));
-const bindingGuess = (b) => (HARDCOVER_31OCT.some((t) => norm(b.title).startsWith(t)) ? 'hardcover' : 'paperback');
+// Printed books without paperback / hardcover (e.g. after "Mark as printed").
+// Most books are paperbacks, so that's the starting pick.
+const noBinding = () => [...S.books.values()].filter((b) => b.format !== 'ebook' && !b.binding);
 const bindPick = new Map(); // id → choice on the To fix page, until saved
 
 // Books whose record looks odd (js/checks.js), leaving out the ones still waiting
@@ -634,12 +628,12 @@ function renderFixList() {
       </div>
     </div>`;
   const unbound = noBinding().sort(compare('Author'));
-  const pick = (b) => bindPick.get(b.id) || bindingGuess(b);
+  const pick = (b) => bindPick.get(b.id) || 'paperback';
   const bindRow = (b) => `
     <div class="fix-row" data-bind="${esc(b.id)}">
       <a class="cv" href="#/book/${esc(b.id)}" aria-hidden="true" tabindex="-1">${coverBox(b, 44, 66)}</a>
       <div style="flex:1;min-width:0">
-        <a class="tt" href="#/book/${esc(b.id)}" style="display:block;text-decoration:none">${esc(b.title)}</a><span class="sub" style="display:block">${sub(b)}${b.format === 'ebook' ? ' · marked as ebook' : ''}</span>
+        <a class="tt" href="#/book/${esc(b.id)}" style="display:block;text-decoration:none">${esc(b.title)}</a><span class="sub" style="display:block">${sub(b)}</span>
         <div class="bind-seg" role="group" aria-label="Binding">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover']].map(([k, l]) =>
           `<button class="tap" aria-pressed="${pick(b) === k}" data-b="${k}">${l}</button>`).join('')}</div>
       </div>
@@ -650,7 +644,7 @@ function renderFixList() {
     <header class="page-head"><h1 class="disp">To fix</h1>
       <p>${nothing ? 'Nothing to fix.' : 'Open a book to find the right edition, pick another cover, or take a photo of yours.'}</p></header>
     ${unbound.length ? `<div class="section-head" style="padding-top:12px"><span class="name">Paperback or hardcover</span><span class="of">${unbound.length}</span></div>
-      <p class="sec-hint">Picked from your answers. Change any that are wrong, then save them all.</p>
+      <p class="sec-hint">Set to paperback. Change the hardcovers, then save them all.</p>
       <div class="fix-list">${unbound.map(bindRow).join('')}</div>
       <div class="bind-save"><button class="btn-ink tap ch8" id="saveBind">Save ${unbound.length} book${unbound.length === 1 ? '' : 's'}</button></div>` : ''}
     ${merges ? `<div class="fix-list" style="margin-top:${unbound.length ? 32 : 4}px"><a class="fix-row" href="#/names"><span style="flex:1;min-width:0"><span class="tt" style="display:block">People &amp; publishers</span><span class="sub" style="display:block">${merges} to tidy up</span></span>${I.right}</a></div>` : ''}
