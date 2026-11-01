@@ -967,7 +967,7 @@ function renderLookup() {
       <p>${pending.length ? `Nationality, gender and years from Wikidata. ${pending.length} ${pending.length === 1 ? 'person' : 'people'} to go, ${done} done.` : `Everyone on the shelves is looked up (${done}). Open a person to change what’s there.`}</p></header>
     ${untried.length ? `<div class="lk-run">
       <button class="btn-ink tap ch8" id="runLook"${busy ? ' disabled' : ''}>${LK.running ? esc(LK.prog || 'Starting…') : `Look up ${untried.length === pending.length ? '' : 'the other '}${untried.length} ${untried.length === 1 ? 'person' : 'people'}`}</button>
-      <p class="sec-hint" style="padding:10px 0 0">${LK.running ? 'Keep the app open; it takes two or three minutes.' : 'It checks each name against the books they’re on here. Nothing is saved until you choose.'}</p></div>` : ''}
+      <p class="sec-hint" style="padding:10px 0 0">${LK.running ? 'Keep the app open and the screen on; it takes about five minutes.' : 'It checks each name against the books they’re on here. Nothing is saved until you choose.'}</p></div>` : ''}
     ${certain.length ? `<div class="section-head"><span class="name">Confirmed by your books</span><span class="of">${certain.length}</span></div>
       <p class="sec-hint">Wikidata lists each of them on a book they’re on here. Safe to save in one go.</p>
       ${saveAll('certain', certain, `Save all ${certain.length}`)}
