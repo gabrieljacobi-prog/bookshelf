@@ -88,7 +88,10 @@ const yearText = (y) => (y < 0 ? `${-y} BC` : String(y));
 // "1929–2018", "born 1971", "died 1321"
 const lifeYears = (a) => (a.born != null && a.died != null ? `${yearText(a.born)}–${yearText(a.died)}`
   : a.born != null ? `born ${yearText(a.born)}` : a.died != null ? `died ${yearText(a.died)}` : '');
-const personMeta = (a) => [cleanNationality(a.nationality), a.gender, lifeYears(a)].filter(Boolean).join(' · ');
+// Stored as woman / man (as Wikidata maps them); shown as female / male.
+const GENDER_SHOWN = { woman: 'female', man: 'male' };
+const genderText = (g) => (g ? GENDER_SHOWN[g] || g : g);
+const personMeta = (a) => [cleanNationality(a.nationality), genderText(a.gender), lifeYears(a)].filter(Boolean).join(' · ');
 // Archived = no longer in the house. Kept (with where it went, in private) but
 // off the shelves: not counted, not checked, not shown to friends.
 const onShelf = (b) => !b.archived;
@@ -111,8 +114,8 @@ function natList() {
   }
   return [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
-const GEN_LABEL = { woman: 'By women', man: 'By men', 'non-binary': 'By non-binary authors' };
-const genLabel = (g) => GEN_LABEL[g] || `By ${g} authors`;
+const GEN_LABEL = { woman: 'Female authors', man: 'Male authors', 'non-binary': 'Non-binary authors' };
+const genLabel = (g) => GEN_LABEL[g] || `${g[0].toUpperCase() + g.slice(1)} authors`;
 function passesFilters(b) {
   if (!!b.archived !== (isMember() && S.arch)) return false;
   if (S.cat !== 'All' && b.category !== S.cat) return false;
@@ -150,7 +153,7 @@ function filterLabel() {
   if (S.gen !== 'any') parts.push(genLabel(S.gen));
   if (isMember() && readLabel()) parts.push(readLabel());
   if (isMember() && S.lent) parts.push('Lent out');
-  if (isMember() && S.toGo) parts.push('Getting rid of');
+  if (isMember() && S.toGo) parts.push('To pass on');
   if (isMember() && S.arch) parts.push('Archived');
   return parts.join(' · ') || 'All';
 }
@@ -207,19 +210,21 @@ function metrics() {
 }
 
 const shownCovers = new Map(); // cover key → thumb src that has loaded once
-function coverBox(b, W, H, cls = '') {
+// A copper bookmark ribbon on Hall of Fame covers in the grid.
+const HOF_MARK = '<span class="hof-mark" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5l2.9 6.2 6.8.8-5 4.6 1.3 6.7L12 17.5l-6 3.3 1.3-6.7-5-4.6 6.8-.8z"/></svg></span>';
+function coverBox(b, W, H, cls = '', mark = '') {
   const r = b.cover?.w && b.cover?.h ? b.cover.w / b.cover.h : 0.66;
   let w = W, h = Math.round(W / r);
   if (h > H) { h = H; w = Math.round(H * r); }
   const size = `width:${w}px;height:${h}px`;
   if (!b.cover) {
-    return `<span class="cover ph ${cls}" style="${size}" aria-hidden="true"><span class="pa">${esc(byLine(b))}</span><span class="pt">${esc(b.title)}</span></span>`;
+    return `<span class="cover ph ${cls}" style="${size}" aria-hidden="true"><span class="pa">${esc(byLine(b))}</span><span class="pt">${esc(b.title)}</span>${mark}</span>`;
   }
   const key = b.cover.url || `${b.id}@${b.cover.v ?? ''}`;
   const seen = shownCovers.get(key);
-  if (seen) return `<span class="cover ${cls}" style="${size}"><img alt="" src="${esc(seen)}"></span>`;
+  if (seen) return `<span class="cover ${cls}" style="${size}"><img alt="" src="${esc(seen)}">${mark}</span>`;
   const src = b.cover.url ? ` data-url="${esc(b.cover.url)}"` : ` data-cid="${esc(b.id)}"`;
-  return `<span class="cover loading ${cls}" style="${size}"${src} data-key="${esc(key)}"><img alt="" decoding="async"></span>`;
+  return `<span class="cover loading ${cls}" style="${size}"${src} data-key="${esc(key)}"><img alt="" decoding="async">${mark}</span>`;
 }
 
 function renderLibrary() {
@@ -291,7 +296,7 @@ function renderToolbar() {
         <div class="mh lbl">Loans</div>
         <button role="menuitemcheckbox" aria-checked="${S.lent}" data-lentf="1">Lent out${S.lent ? I.check : ''}</button>
         <div class="mh lbl">Leaving</div>
-        <button role="menuitemcheckbox" aria-checked="${S.toGo}" data-togof="1">Getting rid of${S.toGo ? I.check : ''}</button>
+        <button role="menuitemcheckbox" aria-checked="${S.toGo}" data-togof="1">To pass on${S.toGo ? I.check : ''}</button>
         <button role="menuitemcheckbox" aria-checked="${S.arch}" data-archf="1">Archived${S.arch ? I.check : ''}</button>` : ''}
       </div>` : ''}
     </div>
@@ -340,7 +345,7 @@ const NAT_FIRST = 8;
 function authorFilters() {
   const gens = new Set();
   for (const b of shelfBooks()) for (const a of mainPeople(b)) if (a.gender) gens.add(a.gender);
-  const genOpts = [['any', 'Any'], ['woman', 'Women'], ['man', 'Men'],
+  const genOpts = [['any', 'Any'], ['woman', 'Female'], ['man', 'Male'],
     ...[...gens].filter((g) => !['woman', 'man'].includes(g)).sort().map((g) => [g, g[0].toUpperCase() + g.slice(1)])];
   const all = natList();
   const shown = S.natMore ? all : all.filter(([k], i) => i < NAT_FIRST || k === S.nat);
@@ -364,7 +369,7 @@ function rowsHtml(books, m, sub = byLine) {
   for (let j = 0; j < books.length; j += m.n) rows.push(books.slice(j, j + m.n));
   return `<div class="rows">${rows.map((row) => `
     <div>
-      <div class="shelf">${row.map((b) => `<a href="#/book/${esc(b.id)}" aria-label="${esc(b.title)}${b.authors?.length ? ' by ' + esc(byLine(b)) : ''}">${coverBox(b, m.W, m.H)}</a>`).join('')}</div>
+      <div class="shelf">${row.map((b) => `<a href="#/book/${esc(b.id)}" aria-label="${esc(b.title)}${b.authors?.length ? ' by ' + esc(byLine(b)) : ''}${b.hallOfFame ? ', Hall of Fame' : ''}">${coverBox(b, m.W, m.H, '', b.hallOfFame ? HOF_MARK : '')}</a>`).join('')}</div>
       <div class="caps">${row.map((b) => `<a href="#/book/${esc(b.id)}" tabindex="-1" aria-hidden="true"><div class="t">${esc(b.title)}</div><div class="a">${esc(sub(b))}</div></a>`).join('')}</div>
     </div>`).join('')}
   </div>`;
@@ -576,8 +581,9 @@ function renderBook(id) {
     </div></form></div>`;
   } else if (member) {
     leaving = `<div class="lend leave">
-      <button class="btn-line ch8 go-btn" id="toGo" aria-pressed="${!!p.toGo}"><span class="ch8i tap">${p.toGo ? 'Getting rid of it' : 'Mark to get rid of'}</span></button>
-      <button class="btn-line ch8" id="openArch"><span class="ch8i tap">Archive</span></button>
+      <button class="quiet tap go-btn" id="toGo" aria-pressed="${!!p.toGo}">${p.toGo ? `${I.check}Set aside to pass on` : 'Set aside to pass on'}</button>
+      <span class="sep" aria-hidden="true">·</span>
+      <button class="quiet tap" id="openArch">Archive</button>
     </div>`;
   }
 
@@ -599,7 +605,7 @@ function renderBook(id) {
     </section>
     ${fixPanelHtml(b)}
     <section class="intro">
-      ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}${member && b.archived ? ' · Archived' : member && p.toGo ? ' · Getting rid of' : ''}</div>` : ''}
+      ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}${member && b.archived ? ' · Archived' : member && p.toGo ? ' · To pass on' : ''}</div>` : ''}
       <h1 class="disp${b.title.length > 22 ? ' long' : ''}">${esc(b.title)}</h1>
       ${b.subtitle ? `<p class="subtitle">${esc(b.subtitle)}</p>` : ''}
       ${b.authors?.length || main.length ? `<div class="by">${byHtml}</div>` : ''}
@@ -837,7 +843,7 @@ function renderAuthor(id) {
         <div class="fr"><label class="lbl" for="af-name">Name</label><input id="af-name" name="name" value="${esc(a.name || '')}" autocomplete="off"></div>
         <div class="fr"><label class="lbl" for="af-nat">Nationality</label><input id="af-nat" name="nationality" value="${esc(cleanNationality(a.nationality) || '')}" placeholder="e.g. Brazilian, or Brazilian / Portuguese" autocomplete="off"></div>
         <div class="fr"><span class="lbl">Gender</span>
-          <div class="past">${GENDER_PICKS.map((k) => `<button type="button" class="chip ch6" data-g="${k}" aria-pressed="${g === k}"><span class="ch6i">${k}</span></button>`).join('')}</div>
+          <div class="past">${GENDER_PICKS.map((k) => `<button type="button" class="chip ch6" data-g="${k}" aria-pressed="${g === k}"><span class="ch6i">${genderText(k)}</span></button>`).join('')}</div>
           <input id="af-gender" name="gender" value="${esc(GENDER_PICKS.includes(g) ? '' : g)}" placeholder="Or in your own words" autocomplete="off">
         </div>
         <div class="fr"><span class="lbl">Years</span><div class="fy">
@@ -857,7 +863,7 @@ function renderAuthor(id) {
         <div class="acts">${ui.loading ? '' : '<button class="cancel tap" id="noWd">Not on Wikidata</button>'}<button class="cancel tap" id="cancelAuthor">Cancel</button></div>
       </section>`;
     } else {
-      const rows = [['Nationality', cleanNationality(a.nationality)], ['Gender', a.gender], ['Born', a.born != null ? yearText(a.born) : null],
+      const rows = [['Nationality', cleanNationality(a.nationality)], ['Gender', genderText(a.gender)], ['Born', a.born != null ? yearText(a.born) : null],
         ['Died', a.died != null ? yearText(a.died) : null], ['Sort as', a.sortName]].filter(([, v]) => v);
       const source = a.wikidata ? `From <a href="${wikidataUrl(a.wikidata)}" target="_blank" rel="noopener">Wikidata</a>${a.source === 'hand' ? ', edited by hand' : ''}.`
         : a.checked ? 'Filled in by hand.' : a.lookedUp ? 'Not on Wikidata.' : 'Not looked up yet.';

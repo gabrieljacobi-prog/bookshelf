@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#2E2B29"/>
+  <g transform="translate(256 262) scale(1.14) translate(-256 -262)">
+  <!-- arch, like the person arches in the app -->
+  <path d="M152 384 V236 A104 104 0 0 1 360 236 V384" fill="#383431" stroke="#F0E4CF" stroke-width="6"/>
+  <!-- spines -->
+  <rect x="184" y="236" width="30" height="148" fill="#F0E4CF"/>
+  <rect x="220" y="212" width="24" height="172" fill="#BDB1A0"/>
+  <rect x="250" y="250" width="34" height="134" fill="#C9774A"/>
+  <rect x="289" y="236" width="26" height="148" fill="#F0E4CF" transform="rotate(16 315 384)"/>
+  <!-- shelf line -->
+  <rect x="128" y="383" width="256" height="6" fill="#F0E4CF"/>
+
+  </g>
+</svg>
