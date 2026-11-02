@@ -26,12 +26,18 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private window */ } },
 };
 
+// Filters: within a group any pick matches ("Portuguese or Swedish"); groups
+// combine ("Portuguese or Swedish, by female authors"). read: unread / flor / ingrid.
+function noFilters() {
+  return { hof: false, lang: new Set(), orig: new Set(), gen: new Set(), nat: new Set(), read: new Set(),
+    len: null, lent: false, toGo: false, arch: false };
+}
 const S = {
   books: new Map(), authors: new Map(), series: new Map(), priv: new Map(),
   loaded: false, user: null,
   cat: 'All', sort: 'Author', q: '', searching: false, open: null,
-  hof: false, lang: 'All', orig: 'any', nat: 'All', gen: 'any', natMore: false, // filters anyone can use
-  rf: { flor: 'any', ingrid: 'any' }, lent: false, toGo: false, arch: false, // member-only filters
+  f: noFilters(), // the Filter sheet's picks (the shelf is S.cat)
+  sheet: false, natMore: false,
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
   reviewHidden: store.get('reviewHidden', '') === '1',
 };
@@ -42,6 +48,10 @@ const norm = (s) => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').to
 
 // --- Icons (stroke, from the mockups) ---------------------------------------------
 const I = {
+  xLg: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  arrow: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 12h15M14 7l5 5-5 5"/></svg>',
+  filter: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+  xBold: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   sort: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" style="color:var(--muted)"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/></svg>',
   search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
@@ -102,65 +112,86 @@ const readerName = (k) => READERS.find(([x]) => x === k)[1];
 // The people a book is by (authors, comics writers), as their records.
 const mainPeople = (b) => (b.people || []).filter(isMain).map((p) => S.authors.get(p.authorId)).filter(Boolean);
 // Author filters: a book passes when one person it's by fits both (a book by a
-// Brazilian man and an American woman isn't "Brazilian women").
-const byWhom = (b) => mainPeople(b).some((a) => (S.nat === 'All' || nationalities(a.nationality).includes(S.nat))
-  && (S.gen === 'any' || a.gender === S.gen));
-// Nationalities of the people the books are by, most books first.
-function natList() {
+// Brazilian man and an American woman isn't "Brazilian · Female authors").
+const byWhom = (b) => mainPeople(b).some((a) => (!S.f.nat.size || nationalities(a.nationality).some((x) => S.f.nat.has(x)))
+  && (!S.f.gen.size || S.f.gen.has(a.gender)));
+// Nationalities of the people the books on this shelf are by, most books first.
+function natList(books = shelfNow()) {
   const n = new Map();
-  for (const b of shelfBooks()) {
+  for (const b of books) {
     const seen = new Set(mainPeople(b).flatMap((a) => nationalities(a.nationality)));
     for (const x of seen) n.set(x, (n.get(x) || 0) + 1);
   }
   return [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
+const GEN_ORDER = ['woman', 'man', 'non-binary'];
 const GEN_LABEL = { woman: 'Female authors', man: 'Male authors', 'non-binary': 'Non-binary authors' };
 const genLabel = (g) => GEN_LABEL[g] || `${g[0].toUpperCase() + g.slice(1)} authors`;
-function passesFilters(b) {
-  if (!!b.archived !== (isMember() && S.arch)) return false;
+const cap = (x) => x[0].toUpperCase() + x.slice(1);
+// The books on the chosen shelf (archived ones only when Archived is picked).
+const shelfNow = () => [...S.books.values()].filter((b) => !!b.archived === (isMember() && S.f.arch) && (S.cat === 'All' || b.category === S.cat));
+
+// Read: the picks say who may have read it. A name alone means they have.
+function readPick() {
+  const r = S.f.read, U = r.has('unread'), F = r.has('flor'), I = r.has('ingrid');
+  if (!r.size || (U && F && I)) return null;
+  if (U && F) return { text: 'Ingrid hasn’t read', say: 'Books Ingrid hasn’t read', test: (x) => !x.includes('ingrid') };
+  if (U && I) return { text: 'Flor hasn’t read', say: 'Books Flor hasn’t read', test: (x) => !x.includes('flor') };
+  if (U) return { text: 'Unread', say: 'Books neither of you has read', test: (x) => !x.length };
+  if (F && I) return { text: 'Read by both', say: 'Books you’ve both read', test: (x) => x.includes('flor') && x.includes('ingrid') };
+  if (F) return { text: 'Read by Flor', say: 'Books Flor has read', test: (x) => x.includes('flor') };
+  return { text: 'Read by Ingrid', say: 'Books Ingrid has read', test: (x) => x.includes('ingrid') };
+}
+const LEN_MAX = 1000;
+const lenText = (l) => (!l ? 'Any length' : l.hi >= LEN_MAX ? `Over ${l.lo} pages` : l.lo <= 0 ? `Under ${l.hi} pages` : `${l.lo} to ${l.hi} pages`);
+// Everything but the shelf; `skip` leaves one group out (for the counts on its chips).
+function passesFilters(b, skip = '') {
+  if (!!b.archived !== (isMember() && S.f.arch)) return false;
   if (S.cat !== 'All' && b.category !== S.cat) return false;
-  if (S.hof && !b.hallOfFame) return false;
-  if (S.lang !== 'All' && b.language !== S.lang) return false;
-  if (S.orig !== 'any' && isTranslated(b) !== (S.orig === 'translated')) return false;
-  if ((S.nat !== 'All' || S.gen !== 'any') && !byWhom(b)) return false;
+  const f = S.f;
+  if (f.hof && skip !== 'hof' && !b.hallOfFame) return false;
+  if (skip !== 'lang' && f.lang.size && !f.lang.has(b.language)) return false;
+  if (f.orig.size === 1 && skip !== 'orig' && isTranslated(b) !== f.orig.has('translated')) return false;
+  if ((f.nat.size || f.gen.size) && skip !== 'author' && !byWhom(b)) return false;
+  if (f.len && !(b.pages > 1 && b.pages >= f.len.lo && (f.len.hi >= LEN_MAX || b.pages <= f.len.hi))) return false;
   if (!isMember()) return true;
   const p = S.priv.get(b.id) || {};
-  const r = p.readBy || [];
-  for (const [k] of READERS) {
-    if (S.rf[k] === 'yes' && !r.includes(k)) return false;
-    if (S.rf[k] === 'no' && r.includes(k)) return false;
-  }
-  if (S.lent && !p.lentTo) return false;
-  if (S.toGo && !p.toGo) return false;
+  const rp = readPick();
+  if (rp && !rp.test(p.readBy || [])) return false;
+  if (f.lent && !p.lentTo) return false;
+  if (f.toGo && !p.toGo) return false;
   return true;
 }
-function readLabel() {
-  const { flor: f, ingrid: i } = S.rf;
-  if (f === 'any' && i === 'any') return '';
-  if (f === i) return f === 'yes' ? 'Read by both' : 'Unread';
-  const one = (k, v) => (v === 'yes' ? `Read by ${readerName(k)}` : `Not read by ${readerName(k)}`);
-  if (f === 'any') return one('ingrid', i);
-  if (i === 'any') return one('flor', f);
-  return f === 'yes' ? 'Read by Flor, not Ingrid' : 'Read by Ingrid, not Flor';
+// The picks as removable chips, in the sheet's order.
+function activeChips() {
+  const f = S.f, out = [];
+  if (f.hof) out.push(['hof', 'Hall of Fame']);
+  for (const l of f.lang) out.push([`lang:${l}`, LANGS[l] || l]);
+  if (f.orig.size === 1) out.push(['orig', f.orig.has('translated') ? 'Translated' : 'Original']);
+  for (const g of f.gen) out.push([`gen:${g}`, genLabel(g)]);
+  for (const n of f.nat) out.push([`nat:${n}`, n]);
+  if (f.len) out.push(['len', lenText(f.len)]);
+  if (isMember()) {
+    const rp = readPick();
+    if (rp) out.push(['read', rp.text]);
+    if (f.lent) out.push(['lent', 'Lent out']);
+    if (f.toGo) out.push(['toGo', 'To pass on']);
+    if (f.arch) out.push(['arch', 'Archived']);
+  }
+  return out;
 }
-function filterLabel() {
-  const parts = [];
-  if (S.hof) parts.push('Hall of Fame');
-  if (S.cat !== 'All') parts.push(S.cat);
-  if (S.lang !== 'All') parts.push(LANGS[S.lang] || S.lang);
-  if (S.orig !== 'any') parts.push(S.orig === 'translated' ? 'Translated' : 'Original');
-  if (S.nat !== 'All') parts.push(S.nat);
-  if (S.gen !== 'any') parts.push(genLabel(S.gen));
-  if (isMember() && readLabel()) parts.push(readLabel());
-  if (isMember() && S.lent) parts.push('Lent out');
-  if (isMember() && S.toGo) parts.push('To pass on');
-  if (isMember() && S.arch) parts.push('Archived');
-  return parts.join(' · ') || 'All';
+function removeChip(key) {
+  const [k, v] = key.split(/:(.*)/s);
+  const f = S.f;
+  if (v != null) f[k].delete(v);
+  else if (k === 'orig' || k === 'read') f[k].clear();
+  else if (k === 'len') f.len = null;
+  else f[k] = false;
 }
-const memberFilters = () => isMember() && (S.rf.flor !== 'any' || S.rf.ingrid !== 'any' || S.lent || S.toGo || S.arch);
-const otherFilters = () => S.hof || S.lang !== 'All' || S.orig !== 'any' || S.nat !== 'All' || S.gen !== 'any' || memberFilters();
+const memberFilters = () => isMember() && (!!readPick() || S.f.lent || S.f.toGo || S.f.arch);
+const otherFilters = () => activeChips().length > 0;
 const anyFilter = () => S.cat !== 'All' || otherFilters();
-function clearFilters() { S.cat = 'All'; S.hof = false; S.lang = 'All'; S.orig = 'any'; S.nat = 'All'; S.gen = 'any'; S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; S.toGo = false; S.arch = false; }
+function clearFilters() { S.f = noFilters(); }
 
 function applyTheme() {
   const root = document.documentElement;
@@ -227,32 +258,80 @@ function coverBox(b, W, H, cls = '', mark = '') {
   return `<span class="cover loading ${cls}" style="${size}"${src} data-key="${esc(key)}"><img alt="" decoding="async">${mark}</span>`;
 }
 
+const shelfTitle = () => (S.cat === 'All' ? 'Library' : S.cat);
+const shelfCount = () => [...S.books.values()].filter((b) => onShelf(b) && (S.cat === 'All' || b.category === S.cat)).length;
+
 function renderLibrary() {
   const el = $('#library');
-  const n = shelfBooks().length;
+  const n = shelfCount();
   const fixN = toFix().length + (S.loaded && isMember() ? noBinding().length : 0);
   const oddN = S.loaded && isMember() ? looksOdd().length : 0;
   const barText = [fixN && `${fixN} book${fixN === 1 ? '' : 's'} to fix`, oddN && `${oddN}${fixN ? '' : ` book${oddN === 1 ? '' : 's'}`} look${oddN === 1 ? 's' : ''} odd`].filter(Boolean).join(' · ');
+  const keepX = $('#shelves')?.scrollLeft || 0;
   el.innerHTML = `
     <header class="hero">
-      <div><div class="count disp">${S.loaded ? n : '&nbsp;'}</div><div class="lbl" style="margin-top:8px">Books</div></div>
-      <h1 class="disp">Library</h1>
+      <h1 class="disp">${esc(shelfTitle())}</h1>
+      <div class="count disp">${S.loaded ? n : '&nbsp;'}</div>
     </header>
+    <div class="shelves-wrap" id="shelvesWrap">
+      <nav class="shelves" id="shelves" aria-label="Shelves">
+        ${[['All', 'Library'], ...CATS.map((c) => [c, c])].map(([k, l]) => `<button class="disp" data-shelf="${esc(k)}" aria-current="${S.cat === k ? 'page' : 'false'}">${esc(k === 'All' ? 'All' : l)}</button>`).join('')}
+      </nav>
+      <span class="fade l" aria-hidden="true"></span><span class="fade r" aria-hidden="true"></span>
+    </div>
     ${isMember() && barText && !S.reviewHidden ? `
     <div class="review">
       <button id="reviewGo"><span class="dot"></span><span class="what">${barText}</span><span class="tap go">To fix</span></button>
       <button class="x icon-btn" id="hideReview" aria-label="Hide (the menu brings it back)">${I.x}</button>
     </div>` : ''}
     <div class="sticky grain" id="sticky">
-      <div class="compact"><div style="display:flex;align-items:baseline;gap:8px"><span class="n disp">${n}</span><span class="lbl">Books</span></div><h1 class="disp">Library</h1></div>
+      <div class="compact"><h1 class="disp">${esc(shelfTitle())}</h1><span class="n disp">${n}</span></div>
       <div class="toolbar" id="toolbar"></div>
     </div>
+    <div id="active"></div>
     <div class="list" id="list"></div>`;
   $('#reviewGo')?.addEventListener('click', () => { location.hash = '#/fix'; });
   $('#hideReview')?.addEventListener('click', () => { S.reviewHidden = true; store.set('reviewHidden', '1'); renderLibrary(); });
+  const row = $('#shelves');
+  row.scrollLeft = keepX;
+  row.addEventListener('scroll', shelfFades, { passive: true });
+  showShelf(keepX ? 'smooth' : 'instant');
   renderToolbar();
+  renderActive();
   renderList();
   watchStuck();
+}
+
+// The shelf row is wider than a phone: bring the chosen one into view, and fade
+// the edge on the side that has more.
+function showShelf(behavior = 'smooth') {
+  const row = $('#shelves');
+  const b = row?.querySelector('[aria-current="page"]');
+  if (!row || !b) return;
+  const pad = 20;
+  const left = b.offsetLeft - pad, right = b.offsetLeft + b.offsetWidth + pad - row.clientWidth;
+  let x = row.scrollLeft < right ? right : row.scrollLeft > left ? left : row.scrollLeft;
+  if (!b.nextElementSibling) x = row.scrollWidth; // the last shelf: all the way, so no fade is left
+  if (!b.previousElementSibling) x = 0;
+  if (x !== row.scrollLeft) row.scrollTo({ left: Math.max(0, x), behavior });
+  shelfFades();
+}
+function shelfFades() {
+  const row = $('#shelves'), w = $('#shelvesWrap');
+  if (!row || !w) return;
+  w.classList.toggle('more-l', row.scrollLeft > 2);
+  w.classList.toggle('more-r', row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
+}
+function pickShelf(k) {
+  if (k === S.cat) return;
+  S.cat = k;
+  const n = shelfCount();
+  for (const h of document.querySelectorAll('#library .hero h1, #library .compact h1')) h.textContent = shelfTitle();
+  for (const c of document.querySelectorAll('#library .hero .count, #library .compact .n')) c.textContent = n;
+  for (const b of document.querySelectorAll('#shelves [data-shelf]')) b.setAttribute('aria-current', b.dataset.shelf === k ? 'page' : 'false');
+  showShelf();
+  renderActive();
+  renderList();
 }
 
 function renderToolbar() {
@@ -278,28 +357,9 @@ function renderToolbar() {
   const sortShort = (SORTS.find(([l]) => l === S.sort) || [S.sort, S.sort])[1];
   const items = (list, cur, key) => list.map(([label]) => `<button role="menuitemradio" aria-checked="${label === cur}" data-${key}="${esc(label)}">${esc(label)}${label === cur ? I.check : ''}</button>`).join('');
   const u = S.user;
+  const nf = activeChips().length;
   tb.innerHTML = `
-    <div class="dd">
-      <button class="tap" data-open="cat" aria-haspopup="true" aria-expanded="${S.open === 'cat'}" aria-label="Show: ${esc(filterLabel())}"><span class="cur">${esc(filterLabel())}</span>${I.chev}</button>
-      ${S.open === 'cat' ? `<div class="menu" role="menu" aria-label="Show">
-        ${anyFilter() ? '<button class="clear" data-clear="1">Clear filters' + I.x + '</button>' : ''}
-        <button role="menuitemcheckbox" aria-checked="${S.hof}" data-hof="1">Hall of Fame${S.hof ? I.check : ''}</button>
-        <div class="mh lbl">Category</div>
-        ${items([['All'], ...CATS.map((c) => [c])], S.cat, 'cat')}
-        <div class="mh lbl">Language</div>
-        ${[['All', 'All'], ...langList()].map(([k, l]) => `<button role="menuitemradio" aria-checked="${S.lang === k}" data-lang="${esc(k)}">${esc(l)}${S.lang === k ? I.check : ''}</button>`).join('')}
-        ${seg('Translation', 'orig', S.orig, [['any', 'Any'], ['original', 'Original'], ['translated', 'Translated']])}
-        ${authorFilters()}
-        ${isMember() ? `
-        <div class="mh lbl">Read</div>
-        ${READERS.map(([k, name]) => seg(name, `rf-${k}`, S.rf[k], [['any', 'Any'], ['yes', 'Read'], ['no', 'Not read']])).join('')}
-        <div class="mh lbl">Loans</div>
-        <button role="menuitemcheckbox" aria-checked="${S.lent}" data-lentf="1">Lent out${S.lent ? I.check : ''}</button>
-        <div class="mh lbl">Leaving</div>
-        <button role="menuitemcheckbox" aria-checked="${S.toGo}" data-togof="1">To pass on${S.toGo ? I.check : ''}</button>
-        <button role="menuitemcheckbox" aria-checked="${S.arch}" data-archf="1">Archived${S.arch ? I.check : ''}</button>` : ''}
-      </div>` : ''}
-    </div>
+    <button class="tap filter-btn${nf ? ' on' : ''}" id="openFilter" aria-haspopup="dialog">${I.filter}<span>Filter</span>${nf ? `<span class="badge" aria-label="${nf} on">${nf}</span>` : ''}</button>
     <span class="sep" aria-hidden="true"></span>
     <div class="dd">
       <button class="tap" data-open="sort" aria-haspopup="true" aria-expanded="${S.open === 'sort'}" aria-label="Sort by ${esc(S.sort)}">${I.sort}<span>${esc(sortShort)}</span>${I.chev}</button>
@@ -333,30 +393,158 @@ function renderToolbar() {
   }
 }
 
+// Under the toolbar while filters are on: each pick as a chip with its own ×,
+// how many books are left, and Clear all.
+function renderActive() {
+  const el = $('#active');
+  if (!el) return;
+  const chips = activeChips();
+  if (!chips.length || !S.loaded) { el.innerHTML = ''; el.hidden = true; return; }
+  const n = [...S.books.values()].filter((b) => passesFilters(b)).length;
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="chips">${chips.map(([k, l]) => `<button class="chip-x ch6" data-unf="${esc(k)}" aria-label="Remove ${esc(l)}"><span>${esc(l)}</span>${I.xBold}</button>`).join('')}</div>
+    <div class="result"><span class="n disp">${n}</span><span class="of lbl">of ${shelfCount()} books</span><span class="grow"></span><button class="tap clear-all" data-clear="1">Clear all</button></div>`;
+}
+
+// --- Filter sheet --------------------------------------------------------------------------
+// A sheet from the bottom with every filter as chips; it changes S.f as you tap and
+// the library redraws when it closes. Back, ×, Show, tapping outside, Escape or a
+// swipe down close it.
+function filtersChanged() {
+  if (S.sheet) { renderSheet(); return; }
+  renderToolbar(); renderActive(); renderList();
+}
+function openSheet() {
+  if (S.sheet) return;
+  S.sheet = true;
+  try { history.pushState({ sheet: 1 }, '', location.href); } catch { /* fine without */ }
+  let el = $('#sheet');
+  if (!el) { el = document.createElement('div'); el.id = 'sheet'; document.body.appendChild(el); }
+  document.body.classList.add('sheet-open');
+  renderSheet();
+  requestAnimationFrame(() => { el.classList.add('in'); $('#sheetClose')?.focus({ preventScroll: true }); });
+}
+function closeSheet(fromPop = false) {
+  if (!S.sheet) return;
+  if (!fromPop && history.state?.sheet) { history.back(); return; } // popstate closes it
+  S.sheet = false;
+  const el = $('#sheet');
+  if (el) { el.classList.remove('in'); setTimeout(() => { if (!S.sheet) el.innerHTML = ''; }, 220); }
+  document.body.classList.remove('sheet-open');
+  filtersChanged();
+  $('#openFilter')?.focus({ preventScroll: true });
+}
+window.addEventListener('popstate', () => { if (S.sheet) closeSheet(true); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.sheet) closeSheet(); });
+
+const NAT_FIRST = 8;
+function renderSheet() {
+  const el = $('#sheet');
+  if (!el || !S.sheet) return;
+  const keep = $('#sheetBody')?.scrollTop || 0;
+  const f = S.f, member = isMember();
+  const books = shelfNow();
+  const cnt = (skip, pred) => books.reduce((n, b) => n + (pred(b) && passesFilters(b, skip) ? 1 : 0), 0);
+  const chip = (fk, fv, label, n, on) => `<button class="fchip ch6${n === 0 && !on ? ' zero' : ''}" data-fk="${fk}"${fv != null ? ` data-fv="${esc(fv)}"` : ''} aria-pressed="${on}">${on ? I.check : ''}<span>${esc(label)}</span>${n != null ? `<span class="n">${n}</span>` : ''}</button>`;
+  const group = (label, body, hint = '') => `<section class="fgroup"><div class="fhead"><h3 class="lbl">${label}</h3>${hint ? `<span class="hint">${hint}</span>` : ''}</div>${body}</section>`;
+  const chips = (list) => `<div class="fchips">${list.join('')}</div>`;
+  // Chips keep their place (most books on the shelf first); the numbers say how
+  // many books each would show with the other picks.
+  const byLang = new Map();
+  for (const b of books) if (b.language) byLang.set(b.language, (byLang.get(b.language) || 0) + 1);
+  const langs = [...byLang].sort((a, b) => b[1] - a[1]).map(([k]) => [k, cnt('lang', (b) => b.language === k)]);
+  const fitsGen = (a) => !f.gen.size || f.gen.has(a.gender);
+  const fitsNat = (a) => !f.nat.size || nationalities(a.nationality).some((x) => f.nat.has(x));
+  const gens = [...new Set(books.flatMap((b) => mainPeople(b).map((a) => a.gender)).filter(Boolean))]
+    .sort((a, b) => (GEN_ORDER.indexOf(a) + 1 || 9) - (GEN_ORDER.indexOf(b) + 1 || 9))
+    .map((g) => [g, cnt('author', (b) => mainPeople(b).some((a) => a.gender === g && fitsNat(a)))]);
+  const nats = natList(books).map(([k]) => [k, cnt('author', (b) => mainPeople(b).some((a) => nationalities(a.nationality).includes(k) && fitsGen(a)))]);
+  const natShown = S.natMore ? nats : nats.filter(([k], i) => i < NAT_FIRST || f.nat.has(k));
+  const rp = readPick();
+  const len = f.len || { lo: 0, hi: LEN_MAX };
+  const total = [...S.books.values()].filter((b) => passesFilters(b)).length;
+  el.innerHTML = `
+    <button class="sheet-back" id="sheetBack" aria-label="Close the filter" tabindex="-1"></button>
+    <div class="sheet grain" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-head" id="sheetHead">
+        <span class="grab" aria-hidden="true"></span>
+        <h2 class="disp" id="sheetTitle">Filter</h2>
+        <button class="icon-btn" id="sheetClose" aria-label="Close">${I.xLg}</button>
+      </div>
+      <div class="sheet-body" id="sheetBody">
+        ${group('Hall of Fame', chips([chip('hof', null, 'In the Hall of Fame', cnt('hof', (b) => b.hallOfFame), f.hof)]))}
+        ${langs.length > 1 || f.lang.size ? group('Language', chips(langs.map(([k, n]) => chip('lang', k, LANGS[k] || k, n, f.lang.has(k)))), 'any of these') : ''}
+        ${group('Translation', chips([['original', 'Original', (b) => !isTranslated(b)], ['translated', 'Translated', isTranslated]].map(([k, l, t]) => chip('orig', k, l, cnt('orig', t), f.orig.has(k)))))}
+        ${group('Author', `
+          <div class="fsub">Gender</div>${chips(gens.map(([g, n]) => chip('gen', g, cap(genderText(g)), n, f.gen.has(g))))}
+          <div class="fsub">Nationality</div>${chips([...natShown.map(([k, n]) => chip('nat', k, k, n, f.nat.has(k))),
+            ...(nats.length > NAT_FIRST ? [`<button class="fmore tap" data-natmore="1">${S.natMore ? 'Fewer' : `${nats.length - NAT_FIRST} more`}</button>`] : [])])}`)}
+        ${member ? group('Read', `${chips([['unread', 'Unread'], ['flor', 'Read by Flor'], ['ingrid', 'Read by Ingrid']].map(([k, l]) => chip('read', k, l, null, f.read.has(k))))}
+          ${f.read.size ? `<p class="fresult">${I.arrow}<span>${rp ? esc(rp.say) : 'Every book'}</span></p>` : ''}`) : ''}
+        ${group('Length', `
+          <div class="len-top"><span class="len-text disp" id="lenText">${esc(lenText(f.len))}</span><button class="tap len-any" id="lenAny"${f.len ? '' : ' hidden'}>Any length</button></div>
+          <div class="len-track"><span class="len-rail"></span><span class="len-fill" id="lenFill" style="left:${len.lo / 10}%;width:${(len.hi - len.lo) / 10}%"></span>
+            <input class="rng" type="range" id="lenLo" min="0" max="${LEN_MAX}" step="10" value="${len.lo}" aria-label="Shortest, in pages">
+            <input class="rng" type="range" id="lenHi" min="0" max="${LEN_MAX}" step="10" value="${len.hi}" aria-label="Longest, in pages"></div>
+          <div class="len-scale" aria-hidden="true"><span>0</span><span>250</span><span>500</span><span>750</span><span>1,000+</span></div>`, 'in pages')}
+        ${member ? group('Loans and leaving', chips([
+          chip('lent', null, 'Lent out', null, f.lent), chip('toGo', null, 'To pass on', null, f.toGo), chip('arch', null, 'Archived', null, f.arch)])) : ''}
+      </div>
+      <div class="sheet-foot">
+        <button class="tap clear-all" data-fclear="1"${activeChips().length ? '' : ' disabled'}>Clear all</button>
+        <button class="btn-ink ch8 show-btn" id="sheetShow"><span class="tap">Show</span><span class="n disp" id="sheetN">${total}</span><span class="tap">${total === 1 ? 'book' : 'books'}</span></button>
+      </div>
+    </div>`;
+  $('#sheetBody').scrollTop = keep;
+  wireSheet();
+}
+
+function wireSheet() {
+  const el = $('#sheet');
+  el.onclick = (e) => {
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.id === 'sheetBack' || t.id === 'sheetClose' || t.id === 'sheetShow') { closeSheet(); return; }
+    if (t.dataset.natmore) { S.natMore = !S.natMore; renderSheet(); return; }
+    if (t.dataset.fclear) { clearFilters(); renderSheet(); return; }
+    if (t.id === 'lenAny') { S.f.len = null; renderSheet(); return; }
+    const k = t.dataset.fk;
+    if (!k) return;
+    const f = S.f, v = t.dataset.fv;
+    if (v != null) { f[k].has(v) ? f[k].delete(v) : f[k].add(v); } else f[k] = !f[k];
+    // Archived swaps the whole shelf; its nationalities and counts change with it.
+    renderSheet();
+  };
+  // Length: two thumbs on one track; only the numbers redraw while dragging.
+  const lo = $('#lenLo'), hi = $('#lenHi');
+  const onLen = (which) => {
+    let a = Number(lo.value), b = Number(hi.value);
+    if (a > b - 20) { if (which === 'lo') a = Math.max(0, b - 20); else b = Math.min(LEN_MAX, a + 20); lo.value = a; hi.value = b; }
+    S.f.len = a <= 0 && b >= LEN_MAX ? null : { lo: a, hi: b };
+    $('#lenText').textContent = lenText(S.f.len);
+    $('#lenAny').hidden = !S.f.len;
+    $('#lenFill').style.cssText = `left:${a / 10}%;width:${(b - a) / 10}%`;
+    const n = [...S.books.values()].filter((x) => passesFilters(x)).length;
+    $('#sheetN').textContent = n;
+    $('[data-fclear]').disabled = !activeChips().length;
+  };
+  lo.oninput = () => onLen('lo');
+  hi.oninput = () => onLen('hi');
+  // Swipe the head down to close.
+  const head = $('#sheetHead'), sheet = el.querySelector('.sheet');
+  let y0 = null, dy = 0;
+  head.ontouchstart = (e) => { y0 = e.touches[0].clientY; dy = 0; sheet.style.transition = 'none'; };
+  head.ontouchmove = (e) => { if (y0 == null) return; dy = Math.max(0, e.touches[0].clientY - y0); sheet.style.transform = `translateY(${dy}px)`; };
+  head.ontouchend = () => { sheet.style.transition = ''; sheet.style.transform = ''; if (dy > 90) closeSheet(); y0 = null; };
+}
+
 // Languages on the shelves, most books first.
 function langList() {
   const n = new Map();
   for (const b of shelfBooks()) if (b.language) n.set(b.language, (n.get(b.language) || 0) + 1);
   return [...n].sort((a, b) => b[1] - a[1]).map(([k]) => [k, LANGS[k] || k]);
 }
-// Author section of the Show menu: gender, then nationality (the first ones,
-// and the rest behind More). A chosen nationality further down stays visible.
-const NAT_FIRST = 8;
-function authorFilters() {
-  const gens = new Set();
-  for (const b of shelfBooks()) for (const a of mainPeople(b)) if (a.gender) gens.add(a.gender);
-  const genOpts = [['any', 'Any'], ['woman', 'Female'], ['man', 'Male'],
-    ...[...gens].filter((g) => !['woman', 'man'].includes(g)).sort().map((g) => [g, g[0].toUpperCase() + g.slice(1)])];
-  const all = natList();
-  const shown = S.natMore ? all : all.filter(([k], i) => i < NAT_FIRST || k === S.nat);
-  const natBtn = ([k, n]) => `<button role="menuitemradio" aria-checked="${S.nat === k}" data-nat="${esc(k)}">${esc(k)}<span class="cnt">${n}</span>${S.nat === k ? I.check : ''}</button>`;
-  return `<div class="mh lbl">Author</div>
-        ${seg('Gender', 'gen', S.gen, genOpts)}
-        <button role="menuitemradio" aria-checked="${S.nat === 'All'}" data-nat="All">Any nationality${S.nat === 'All' ? I.check : ''}</button>
-        ${shown.map(natBtn).join('')}
-        ${all.length > NAT_FIRST ? `<button class="more" data-natmore="1">${S.natMore ? 'Fewer nationalities' : `${all.length - NAT_FIRST} more nationalities`}</button>` : ''}`;
-}
-
 // A row of three choices inside a menu ("Flor  Any · Read · Not read").
 const seg = (label, key, cur, opts) => `<div class="seg-row" role="group" aria-label="${esc(label)}"><span class="lbl">${esc(label)}</span><span class="seg">${opts.map(([k, l]) =>
   `<button role="menuitemradio" aria-checked="${cur === k}" data-seg="${key}:${k}">${l}</button>`).join('')}</span></div>`;
@@ -389,20 +577,16 @@ function renderList({ ifChanged = false } = {}) {
   if (ifChanged && shown === lastShown) return;
   lastShown = shown;
   if (!books.length) {
-    list.innerHTML = tokens.length || anyFilter()
-      ? `<p class="empty">Nothing on the shelves matches that.${anyFilter() ? '<br><button class="clear-inline tap" data-clear="1">Clear filters</button>' : ''}</p>`
-      : '<p class="empty">No books here yet.</p>';
+    const chips = activeChips();
+    const last = chips[chips.length - 1];
+    list.innerHTML = tokens.length || chips.length
+      ? `<div class="empty"><p>Nothing on ${S.cat === 'All' ? 'the shelves' : 'this shelf'} matches that.</p>${chips.length ? `<div class="empty-acts">${chips.length > 1 ? `<button class="btn-line ch8" data-unf="${esc(last[0])}"><span class="ch8i tap">Remove “${esc(last[1])}”</span></button>` : ''}<button class="btn-ink ch8 tap" data-clear="1">Clear all</button></div>` : ''}</div>`
+      : `<p class="empty">No books ${S.cat === 'All' ? 'here' : 'on this shelf'} yet.</p>`;
     return;
   }
-  // A category gets its numbered heading ("03 Comics"); "All" is one continuous
-  // shelf, so a sort like Recently added mixes the categories.
-  const ci = CATS.indexOf(S.cat);
-  const filtered = ci >= 0 || otherFilters() || tokens.length;
-  const clear = anyFilter() ? `<button class="clear-head" data-clear="1" aria-label="Clear filters">${I.x}</button>` : '';
-  const head = ci >= 0
-    ? `<div class="section-head"><span class="num disp">${String(ci + 1).padStart(2, '0')}</span><span class="name">${esc(filterLabel())}</span><span class="of">${books.length}</span>${clear}</div>`
-    : filtered ? `<div class="section-head"><span class="name">${esc(tokens.length ? 'Search results' : filterLabel())}</span><span class="of">${books.length}</span>${tokens.length ? '' : clear}</div>`
-    : '<div style="height:24px"></div>';
+  // Search results get a heading; otherwise the shelf title above says what this is.
+  const head = tokens.length ? `<div class="section-head"><span class="name">Search results</span><span class="of">${books.length}</span></div>`
+    : `<div style="height:${activeChips().length ? 10 : 24}px"></div>`;
   const html = `
     <section class="section">
       ${head}
@@ -452,20 +636,10 @@ document.addEventListener('click', async (e) => {
   }
   if (t.tagName === 'A' && t.closest('.menu')) { S.open = null; return; }
   if (t.dataset.open) { S.open = S.open === t.dataset.open ? null : t.dataset.open; renderToolbar(); return; }
-  if (t.dataset.cat) { S.cat = t.dataset.cat; renderToolbar(); renderList(); return; }
-  if (t.dataset.hof) { S.hof = !S.hof; renderToolbar(); renderList(); return; }
-  if (t.dataset.lang) { S.lang = t.dataset.lang; renderToolbar(); renderList(); return; }
-  if (t.dataset.nat) { S.nat = t.dataset.nat; renderToolbar(); renderList(); return; }
-  if (t.dataset.natmore) { S.natMore = !S.natMore; renderToolbar(); return; }
-  if (t.dataset.seg) {
-    const [k, v] = t.dataset.seg.split(':');
-    if (k === 'orig') S.orig = v; else if (k === 'gen') S.gen = v; else S.rf = { ...S.rf, [k.slice(3)]: v };
-    renderToolbar(); renderList(); return;
-  }
-  if (t.dataset.clear) { clearFilters(); renderToolbar(); renderList(); return; }
-  if (t.dataset.lentf) { S.lent = !S.lent; renderToolbar(); renderList(); return; }
-  if (t.dataset.togof) { S.toGo = !S.toGo; renderToolbar(); renderList(); return; }
-  if (t.dataset.archf) { S.arch = !S.arch; renderToolbar(); renderList(); return; }
+  if (t.dataset.shelf) { pickShelf(t.dataset.shelf); return; }
+  if (t.id === 'openFilter') { S.open = null; renderToolbar(); openSheet(); return; }
+  if (t.dataset.unf) { removeChip(t.dataset.unf); filtersChanged(); return; }
+  if (t.dataset.clear) { clearFilters(); filtersChanged(); return; }
   if (t.dataset.themePick) { S.theme = t.dataset.themePick; store.set('theme', S.theme); applyTheme(); renderToolbar(); return; }
   if (t.dataset.sort) { S.sort = t.dataset.sort; S.open = null; renderToolbar(); renderList(); return; }
   if (t.id === 'openSearch') { S.searching = true; S.open = null; renderToolbar(); return; }
@@ -2356,7 +2530,7 @@ function start() {
   let stopPrivate = null;
   onUser((u) => {
     S.user = u;
-    if (!u?.member) { S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; S.toGo = false; S.arch = false; }
+    if (!u?.member) { S.f.read.clear(); S.f.lent = false; S.f.toGo = false; S.f.arch = false; }
     stopPrivate?.(); stopPrivate = null;
     S.priv = new Map();
     rerender();
