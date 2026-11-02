@@ -2379,6 +2379,36 @@ function tidyNationalities() {
   const list = [...S.authors.values()].filter((a) => !a.deleted && a.nationality && cleanNationality(a.nationality) !== a.nationality)
     .map((a) => ({ op: 'update', col: 'authors', id: a.id, data: { nationality: cleanNationality(a.nationality) } }));
   if (list.length) applyOps(list).catch(() => { tidyDone = false; });
+  handFixes();
+}
+
+// One-off: gaps filled in by hand on 2 Nov from the people's own pages
+// (Wikipedia, publishers), and two nationalities typed without the slash.
+// A field is only written while it's still empty or still the old value, so a
+// later edit in the app always wins. Remove once both phones have opened.
+const HAND_FIXES_2NOV = [
+  ['marcial-gala', { nationality: 'Cuban', born: 1963 }],
+  ['t-geronimo-johnson', { nationality: 'American' }],
+  ['lisa-congdon', { nationality: 'American' }],
+  ['bo-mossberg', { nationality: 'Swedish' }],
+  ['suhyeon-lee', { nationality: 'South Korean' }],
+  ['josh-larsen', { gender: 'man' }],
+  ['ernie-bradford', { name: 'Ernle Bradford', sortName: 'Bradford, Ernle', nationality: 'British', gender: 'man', born: 1922, died: 1986 }],
+  ['gabriel-jacobi', { nationality: 'Brazilian / Dutch' }],
+  ['katrina-wetterstedt', { nationality: 'Scottish / Swedish' }],
+];
+const HAND_OLD_2NOV = { name: ['Ernie Bradford'], sortName: ['Bradford, Ernie'], nationality: ['Brazilian Dutch', 'Scottish Swedish'] };
+async function handFixes() {
+  for (const [id, want] of HAND_FIXES_2NOV) {
+    const a = S.authors.get(id);
+    if (!a || a.deleted) continue;
+    const fields = {};
+    for (const [k, v] of Object.entries(want)) {
+      if (a[k] == null || a[k] === '' || (HAND_OLD_2NOV[k] || []).includes(a[k])) fields[k] = v;
+    }
+    if (!Object.keys(fields).length) continue;
+    await saveAuthor(id, { ...fields, checked: true, lookedUp: true, source: 'hand' });
+  }
 }
 
 // A change from the other phone. Wait while something is being typed (a lend
