@@ -381,6 +381,8 @@ button.back { background: none; border: 0; color: var(--ink); }
 .menu .seg button { width: auto; min-height: 36px; padding: 0 9px; border: 0; font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; color: var(--muted); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
 .menu .seg button[aria-checked="true"] { background: var(--ink); color: var(--surface); }
 .menu .clear { font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; color: var(--accentText); }
+.menu button .cnt { margin-left: auto; font: 14px var(--text); color: var(--muted); font-variant-numeric: tabular-nums; }
+.menu .more { font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; color: var(--muted); }
 .section-head .clear-head { align-self: center; width: 36px; height: 36px; margin: -10px -8px -10px -6px; display: flex; align-items: center; justify-content: center; background: none; border: 0; color: var(--muted); }
 .clear-inline { margin-top: 14px; background: none; border: 0; color: var(--accentText); font-style: normal; text-decoration: underline; text-underline-offset: 3px; }
 /* Hall of Fame */

@@ -7,7 +7,8 @@ import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=3';
 import { coverFromUrl, coverFromImage } from './covers.js?v=4';
 import { cropImage } from './crop.js?v=5';
 import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=6';
-import { lookupPerson, lookupMany, fieldsFrom, wikidataUrl } from './wikidata.js?v=2';
+import { lookupPerson, lookupMany, fieldsFrom, wikidataUrl } from './wikidata.js?v=3';
+import { cleanNationality, nationalities } from './nations.js?v=1';
 
 const CATS = ['Fiction', 'Non-fiction', 'Comics', 'Reference'];
 const SORTS = [['Author', 'Author'], ['Title', 'Title'], ['Recently added', 'Added'], ['Year', 'Year'], ['Language', 'Language']];
@@ -29,7 +30,7 @@ const S = {
   books: new Map(), authors: new Map(), series: new Map(), priv: new Map(),
   loaded: false, user: null,
   cat: 'All', sort: 'Author', q: '', searching: false, open: null,
-  hof: false, lang: 'All', orig: 'any', // filters anyone can use
+  hof: false, lang: 'All', orig: 'any', nat: 'All', gen: 'any', natMore: false, // filters anyone can use
   rf: { flor: 'any', ingrid: 'any' }, lent: false, toGo: false, arch: false, // member-only filters
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
   reviewHidden: store.get('reviewHidden', '') === '1',
@@ -87,7 +88,7 @@ const yearText = (y) => (y < 0 ? `${-y} BC` : String(y));
 // "1929–2018", "born 1971", "died 1321"
 const lifeYears = (a) => (a.born != null && a.died != null ? `${yearText(a.born)}–${yearText(a.died)}`
   : a.born != null ? `born ${yearText(a.born)}` : a.died != null ? `died ${yearText(a.died)}` : '');
-const personMeta = (a) => [a.nationality, a.gender, lifeYears(a)].filter(Boolean).join(' · ');
+const personMeta = (a) => [cleanNationality(a.nationality), a.gender, lifeYears(a)].filter(Boolean).join(' · ');
 // Archived = no longer in the house. Kept (with where it went, in private) but
 // off the shelves: not counted, not checked, not shown to friends.
 const onShelf = (b) => !b.archived;
@@ -95,12 +96,30 @@ const shelfBooks = () => [...S.books.values()].filter(onShelf);
 const HOWS = [['given', 'Given away'], ['sold', 'Sold'], ['donated', 'Donated'], ['lost', 'Lost']];
 const howLabel = (k) => HOWS.find(([x]) => x === k)?.[1] || 'Left the shelf';
 const readerName = (k) => READERS.find(([x]) => x === k)[1];
+// The people a book is by (authors, comics writers), as their records.
+const mainPeople = (b) => (b.people || []).filter(isMain).map((p) => S.authors.get(p.authorId)).filter(Boolean);
+// Author filters: a book passes when one person it's by fits both (a book by a
+// Brazilian man and an American woman isn't "Brazilian women").
+const byWhom = (b) => mainPeople(b).some((a) => (S.nat === 'All' || nationalities(a.nationality).includes(S.nat))
+  && (S.gen === 'any' || a.gender === S.gen));
+// Nationalities of the people the books are by, most books first.
+function natList() {
+  const n = new Map();
+  for (const b of shelfBooks()) {
+    const seen = new Set(mainPeople(b).flatMap((a) => nationalities(a.nationality)));
+    for (const x of seen) n.set(x, (n.get(x) || 0) + 1);
+  }
+  return [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+const GEN_LABEL = { woman: 'By women', man: 'By men', 'non-binary': 'By non-binary authors' };
+const genLabel = (g) => GEN_LABEL[g] || `By ${g} authors`;
 function passesFilters(b) {
   if (!!b.archived !== (isMember() && S.arch)) return false;
   if (S.cat !== 'All' && b.category !== S.cat) return false;
   if (S.hof && !b.hallOfFame) return false;
   if (S.lang !== 'All' && b.language !== S.lang) return false;
   if (S.orig !== 'any' && isTranslated(b) !== (S.orig === 'translated')) return false;
+  if ((S.nat !== 'All' || S.gen !== 'any') && !byWhom(b)) return false;
   if (!isMember()) return true;
   const p = S.priv.get(b.id) || {};
   const r = p.readBy || [];
@@ -127,6 +146,8 @@ function filterLabel() {
   if (S.cat !== 'All') parts.push(S.cat);
   if (S.lang !== 'All') parts.push(LANGS[S.lang] || S.lang);
   if (S.orig !== 'any') parts.push(S.orig === 'translated' ? 'Translated' : 'Original');
+  if (S.nat !== 'All') parts.push(S.nat);
+  if (S.gen !== 'any') parts.push(genLabel(S.gen));
   if (isMember() && readLabel()) parts.push(readLabel());
   if (isMember() && S.lent) parts.push('Lent out');
   if (isMember() && S.toGo) parts.push('Getting rid of');
@@ -134,9 +155,9 @@ function filterLabel() {
   return parts.join(' · ') || 'All';
 }
 const memberFilters = () => isMember() && (S.rf.flor !== 'any' || S.rf.ingrid !== 'any' || S.lent || S.toGo || S.arch);
-const otherFilters = () => S.hof || S.lang !== 'All' || S.orig !== 'any' || memberFilters();
+const otherFilters = () => S.hof || S.lang !== 'All' || S.orig !== 'any' || S.nat !== 'All' || S.gen !== 'any' || memberFilters();
 const anyFilter = () => S.cat !== 'All' || otherFilters();
-function clearFilters() { S.cat = 'All'; S.hof = false; S.lang = 'All'; S.orig = 'any'; S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; S.toGo = false; S.arch = false; }
+function clearFilters() { S.cat = 'All'; S.hof = false; S.lang = 'All'; S.orig = 'any'; S.nat = 'All'; S.gen = 'any'; S.rf = { flor: 'any', ingrid: 'any' }; S.lent = false; S.toGo = false; S.arch = false; }
 
 function applyTheme() {
   const root = document.documentElement;
@@ -263,6 +284,7 @@ function renderToolbar() {
         <div class="mh lbl">Language</div>
         ${[['All', 'All'], ...langList()].map(([k, l]) => `<button role="menuitemradio" aria-checked="${S.lang === k}" data-lang="${esc(k)}">${esc(l)}${S.lang === k ? I.check : ''}</button>`).join('')}
         ${seg('Translation', 'orig', S.orig, [['any', 'Any'], ['original', 'Original'], ['translated', 'Translated']])}
+        ${authorFilters()}
         ${isMember() ? `
         <div class="mh lbl">Read</div>
         ${READERS.map(([k, name]) => seg(name, `rf-${k}`, S.rf[k], [['any', 'Any'], ['yes', 'Read'], ['no', 'Not read']])).join('')}
@@ -312,6 +334,24 @@ function langList() {
   for (const b of shelfBooks()) if (b.language) n.set(b.language, (n.get(b.language) || 0) + 1);
   return [...n].sort((a, b) => b[1] - a[1]).map(([k]) => [k, LANGS[k] || k]);
 }
+// Author section of the Show menu: gender, then nationality (the first ones,
+// and the rest behind More). A chosen nationality further down stays visible.
+const NAT_FIRST = 8;
+function authorFilters() {
+  const gens = new Set();
+  for (const b of shelfBooks()) for (const a of mainPeople(b)) if (a.gender) gens.add(a.gender);
+  const genOpts = [['any', 'Any'], ['woman', 'Women'], ['man', 'Men'],
+    ...[...gens].filter((g) => !['woman', 'man'].includes(g)).sort().map((g) => [g, g[0].toUpperCase() + g.slice(1)])];
+  const all = natList();
+  const shown = S.natMore ? all : all.filter(([k], i) => i < NAT_FIRST || k === S.nat);
+  const natBtn = ([k, n]) => `<button role="menuitemradio" aria-checked="${S.nat === k}" data-nat="${esc(k)}">${esc(k)}<span class="cnt">${n}</span>${S.nat === k ? I.check : ''}</button>`;
+  return `<div class="mh lbl">Author</div>
+        ${seg('Gender', 'gen', S.gen, genOpts)}
+        <button role="menuitemradio" aria-checked="${S.nat === 'All'}" data-nat="All">Any nationality${S.nat === 'All' ? I.check : ''}</button>
+        ${shown.map(natBtn).join('')}
+        ${all.length > NAT_FIRST ? `<button class="more" data-natmore="1">${S.natMore ? 'Fewer nationalities' : `${all.length - NAT_FIRST} more nationalities`}</button>` : ''}`;
+}
+
 // A row of three choices inside a menu ("Flor  Any · Read · Not read").
 const seg = (label, key, cur, opts) => `<div class="seg-row" role="group" aria-label="${esc(label)}"><span class="lbl">${esc(label)}</span><span class="seg">${opts.map(([k, l]) =>
   `<button role="menuitemradio" aria-checked="${cur === k}" data-seg="${key}:${k}">${l}</button>`).join('')}</span></div>`;
@@ -410,9 +450,11 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.cat) { S.cat = t.dataset.cat; renderToolbar(); renderList(); return; }
   if (t.dataset.hof) { S.hof = !S.hof; renderToolbar(); renderList(); return; }
   if (t.dataset.lang) { S.lang = t.dataset.lang; renderToolbar(); renderList(); return; }
+  if (t.dataset.nat) { S.nat = t.dataset.nat; renderToolbar(); renderList(); return; }
+  if (t.dataset.natmore) { S.natMore = !S.natMore; renderToolbar(); return; }
   if (t.dataset.seg) {
     const [k, v] = t.dataset.seg.split(':');
-    if (k === 'orig') S.orig = v; else S.rf = { ...S.rf, [k.slice(3)]: v };
+    if (k === 'orig') S.orig = v; else if (k === 'gen') S.gen = v; else S.rf = { ...S.rf, [k.slice(3)]: v };
     renderToolbar(); renderList(); return;
   }
   if (t.dataset.clear) { clearFilters(); renderToolbar(); renderList(); return; }
@@ -793,7 +835,7 @@ function renderAuthor(id) {
       about = `<form class="block aform" id="authorForm">
         <h2 class="disp">About</h2>
         <div class="fr"><label class="lbl" for="af-name">Name</label><input id="af-name" name="name" value="${esc(a.name || '')}" autocomplete="off"></div>
-        <div class="fr"><label class="lbl" for="af-nat">Nationality</label><input id="af-nat" name="nationality" value="${esc(a.nationality || '')}" placeholder="e.g. Brazilian" autocomplete="off"></div>
+        <div class="fr"><label class="lbl" for="af-nat">Nationality</label><input id="af-nat" name="nationality" value="${esc(cleanNationality(a.nationality) || '')}" placeholder="e.g. Brazilian, or Brazilian / Portuguese" autocomplete="off"></div>
         <div class="fr"><span class="lbl">Gender</span>
           <div class="past">${GENDER_PICKS.map((k) => `<button type="button" class="chip ch6" data-g="${k}" aria-pressed="${g === k}"><span class="ch6i">${k}</span></button>`).join('')}</div>
           <input id="af-gender" name="gender" value="${esc(GENDER_PICKS.includes(g) ? '' : g)}" placeholder="Or in your own words" autocomplete="off">
@@ -815,7 +857,7 @@ function renderAuthor(id) {
         <div class="acts">${ui.loading ? '' : '<button class="cancel tap" id="noWd">Not on Wikidata</button>'}<button class="cancel tap" id="cancelAuthor">Cancel</button></div>
       </section>`;
     } else {
-      const rows = [['Nationality', a.nationality], ['Gender', a.gender], ['Born', a.born != null ? yearText(a.born) : null],
+      const rows = [['Nationality', cleanNationality(a.nationality)], ['Gender', a.gender], ['Born', a.born != null ? yearText(a.born) : null],
         ['Died', a.died != null ? yearText(a.died) : null], ['Sort as', a.sortName]].filter(([, v]) => v);
       const source = a.wikidata ? `From <a href="${wikidataUrl(a.wikidata)}" target="_blank" rel="noopener">Wikidata</a>${a.source === 'hand' ? ', edited by hand' : ''}.`
         : a.checked ? 'Filled in by hand.' : a.lookedUp ? 'Not on Wikidata.' : 'Not looked up yet.';
@@ -2302,6 +2344,7 @@ function start() {
     const first = !S.loaded;
     S.books = books; S.authors = authors; S.series = series; S.loaded = true;
     first ? rerender() : liveRerender();
+    tidyNationalities();
   }, (e) => toast('Couldn\'t load the library: ' + e.message));
 
   let stopPrivate = null;
@@ -2311,6 +2354,7 @@ function start() {
     stopPrivate?.(); stopPrivate = null;
     S.priv = new Map();
     rerender();
+    tidyNationalities();
     if (u?.member) {
       let first = true;
       stopPrivate = watchPrivate((priv) => {
@@ -2323,6 +2367,18 @@ function start() {
       }, (e) => toast('Couldn\'t load read status: ' + e.message));
     }
   });
+}
+
+// Saved nationalities from before js/nations.js kept former states
+// ("Colonial Nigeria / Nigerian"). Once the catalogue and a member are both in,
+// rewrite those records cleaned, once per open; afterwards there's nothing to do.
+let tidyDone = false;
+function tidyNationalities() {
+  if (tidyDone || !S.loaded || !isMember()) return;
+  tidyDone = true;
+  const list = [...S.authors.values()].filter((a) => !a.deleted && a.nationality && cleanNationality(a.nationality) !== a.nationality)
+    .map((a) => ({ op: 'update', col: 'authors', id: a.id, data: { nationality: cleanNationality(a.nationality) } }));
+  if (list.length) applyOps(list).catch(() => { tidyDone = false; });
 }
 
 // A change from the other phone. Wait while something is being typed (a lend

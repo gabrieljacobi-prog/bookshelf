@@ -8,6 +8,8 @@
 // - for people still unclear, a search for their book's title, to find its
 //   author on Wikidata from the other side.
 
+import { OLD_COUNTRIES, cleanNationality } from './nations.js?v=1';
+
 const API = 'https://www.wikidata.org/w/api.php';
 const SPARQL = 'https://query.wikidata.org/sparql';
 
@@ -37,24 +39,8 @@ const LANG_NATS = {
 };
 const LANG_NAMES = { pt: 'Portuguese', sv: 'Swedish', nl: 'Dutch', ja: 'Japanese', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', da: 'Danish', no: 'Norwegian', pl: 'Polish' };
 
-// Countries that no longer exist rarely have an English demonym on Wikidata.
-const OLD_COUNTRIES = {
-  'Russian Empire': 'Russian', 'Soviet Union': 'Soviet', 'Empire of Brazil': 'Brazilian',
-  'United Kingdom of Great Britain and Ireland': 'British', 'Kingdom of Great Britain': 'British', 'Kingdom of England': 'English',
-  'Kingdom of Scotland': 'Scottish', 'Kingdom of Ireland': 'Irish', 'Irish Free State': 'Irish',
-  'Austria-Hungary': 'Austro-Hungarian', 'German Empire': 'German', 'Nazi Germany': 'German', 'Weimar Republic': 'German',
-  'Kingdom of Prussia': 'Prussian', 'East Germany': 'East German', 'West Germany': 'West German', 'Kingdom of Italy': 'Italian',
-  'Roman Empire': 'Roman', 'Ancient Rome': 'Roman', 'Roman Republic': 'Roman', "Polish People's Republic": 'Polish',
-  'Czechoslovakia': 'Czechoslovak', 'Yugoslavia': 'Yugoslav', 'Socialist Federal Republic of Yugoslavia': 'Yugoslav',
-  'Kingdom of Portugal': 'Portuguese', 'United Kingdom of Portugal, Brazil and the Algarves': 'Portuguese',
-  'Kingdom of Sweden': 'Swedish', 'Sweden–Norway': 'Swedish', 'Union between Sweden and Norway': 'Swedish',
-  'Ottoman Empire': 'Ottoman', 'Qing dynasty': 'Chinese', 'Empire of Japan': 'Japanese', 'Kingdom of France': 'French',
-  'French Second Republic': 'French', 'Second French Empire': 'French', 'French Third Republic': 'French',
-  'Spanish Empire': 'Spanish', 'Crown of Castile': 'Spanish', 'Dutch Republic': 'Dutch', 'Kingdom of the Netherlands': 'Dutch',
-  'Grand Duchy of Finland': 'Finnish', 'Mandatory Palestine': 'Palestinian', 'British Raj': 'Indian', 'Dominion of India': 'Indian',
-  'Republic of Florence': 'Florentine', 'Republic of Venice': 'Venetian', 'Papal States': 'Italian',
-  'Colony of Kenya': 'Kenyan', 'Kenya Colony': 'Kenyan', 'Union of South Africa': 'South African',
-};
+// Countries that no longer exist rarely have an English demonym on Wikidata;
+// js/nations.js has the table and drops former states next to present-day ones.
 const GENDERS = { Q6581072: 'woman', Q6581097: 'man', Q1052281: 'woman', Q2449503: 'man', Q48270: 'non-binary' };
 // People, and pen names shared by several (James S. A. Corey).
 const PERSONLIKE = ['Q5', 'Q61002', 'Q16017119', 'Q127843'];
@@ -155,7 +141,7 @@ WHERE {
       out[id] = {
         id, label: v('label') || v('names').split('|')[0] || id, about,
         names: v('names').split('|').filter(Boolean),
-        nationality: nats.join(' / ') || null,
+        nationality: cleanNationality(nats.join(' / ')) || null,
         gender: [...new Set(g)].join(' / ') || null,
         born: year(v('born')), died: year(v('died')),
         bookish: v('bookish') === '1' || BOOKISH_DESC.test(about),
