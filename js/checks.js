@@ -1,12 +1,12 @@
 // Catalogue checks: things in a book's record that look odd, and near-duplicate
 // people and publishers. No DOM and no Firebase, so it can be tested on its own.
 
+import { fold } from './names.js?v=1';
+
 // --- Matching ------------------------------------------------------------------------
 
-// Letters NFKD can't take apart, so "Stanisław" and "Stanislaw" match.
-const FOLD = { ł: 'l', Ł: 'L', ø: 'o', Ø: 'O', đ: 'd', Đ: 'D', ß: 'ss', æ: 'ae', Æ: 'Ae', œ: 'oe', Œ: 'Oe', ı: 'i', þ: 'th', Þ: 'Th' };
-export const fold = (s) => String(s ?? '').replace(/[łŁøØđĐßæÆœŒıþÞ]/g, (c) => FOLD[c])
-  .normalize('NFKD').replace(/[̀-ͯ]/g, '');
+// fold() makes "Stanisław" and "Stanislaw" match.
+export { fold };
 export const key = (s) => fold(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 function lev(a, b) {

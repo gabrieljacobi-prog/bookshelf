@@ -4,11 +4,13 @@ A home-library catalogue for two, replacing a bookshelf app. Static site on GitH
 
 ## Current state
 
-- `/` — the app: library grid and book page, built from the "Bookshelf mockups" canvas. `js/data.js` (Firebase, with Firestore's local cache), `js/app.js` (views), `css/app.css` (tokens and type). Anyone can browse; signed-in members also see and change read status and loans.
+- `/` — the app: library grid, book page, person pages, shelves and filters, Add book, the To fix list. `js/data.js` (Firebase, with Firestore's local cache), `js/app.js` (views), `css/app.css` (tokens and type). Anyone can browse; signed-in members also see and change read status and loans.
 
-## Tools
+## Code
 
-- `import/` — one-off import of the previous app CSV export: sign in, pick the CSV, review the clean-up, try covers, import. Clean-up rules live in `js/import-clean.js` (no DOM, testable in Node). Re-running skips books already imported; people and series that already exist are never overwritten.
-- `test/` — coverage test: runs every ISBN from the old Bookshelf export through the same lookups and reports hit rates and missing covers.
+- `js/names.js` — name and title helpers (`slug`, `sortName`, `fixName`, `splitTitle`, `fold`). No DOM, testable in Node.
+- `js/checks.js` — catalogue checks: odd records, near-duplicate people and publishers.
+- `js/lookup.js`, `js/editions.js`, `js/covers.js`, `js/crop.js`, `js/scanner.js` — metadata lookup, edition search, covers, cropping, barcode scanning.
+- `js/wikidata.js`, `js/nations.js` — author lookup and nationality cleaning.
 
-No build step: plain HTML and ES modules. `vendor/zxing-browser.min.js` is @zxing/browser 0.2.1.
+No build step: plain HTML and ES modules. `vendor/zxing-browser.min.js` is @zxing/browser 0.2.1. The one-off import of the previous app's CSV export (`import/`, `js/import-clean.js`) was removed on 3 Nov 2026; it is in git history.

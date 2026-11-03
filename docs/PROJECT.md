@@ -46,9 +46,11 @@ Coverage test across all 408 ISBNs from the export: **99% found, 81% with a work
 - Own frame loop: each frame is cropped to the guide area and decoded with ZXing (`vendor/zxing-browser.min.js`, @zxing/browser 0.2.1). Chrome's native detector is used when available.
 - A code is accepted after two identical reads. EAN-13 and UPC-A are read; a non-ISBN code (a price barcode) shows "look inside the front cover". Older US paperbacks (e.g. Cordelia's Honor) keep the ISBN barcode inside the front cover.
 - **Take photo** fallback decodes a still taken with the phone's camera (tries bands and rotation).
-- Typed ISBN entry. Pages: `/test/` (coverage test). The scanner test page was removed 31 Oct (Add book does the scanning).
+- Typed ISBN entry. The scanner test page and the `/test/` coverage test were removed (Add book does the scanning).
 
 ## Findings about the old data (Bookshelf CSV export, 409 books)
+
+*(The one-off import is done and its page, `import/`, and clean-up code were removed on 3 Nov 2026. They stay in git history. The name and title helpers the app still uses live in `js/names.js`.)*
 
 - Only 1 book has no ISBN in the export (The Star Fox), but **many records point to the wrong edition**. When a scan failed, the closest match was chosen. Examples: Dr Jekyll & Mr Hyde (actually a Zephyr Books edition, not Modernista 2017), Watership Down and both Chronicles of Amber volumes (book-club editions). Gabriel spots these by the cover not matching.
 - Clean-up needed on import: trailing spaces in categories; messy language codes (en/pt/pt br/br/sv/nl/un/blank); garbled author names ("Wyndham. John", "Jr. James Tiptree", "Ana Paula author. Maia", "… pseud. för …"); series inside titles ("(The Book of the New Sun, #4)"); placeholder dates "1970-01-01".

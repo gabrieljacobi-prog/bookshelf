@@ -1,7 +1,7 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
 import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=10';
-import { slug, sortName, fixName, splitTitle } from './import-clean.js?v=2';
-import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=2';
+import { slug, sortName, fixName, splitTitle } from './names.js?v=1';
+import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=3';
 import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=13';
 import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=3';
 import { coverFromUrl, coverFromImage } from './covers.js?v=4';
@@ -381,8 +381,6 @@ function renderToolbar() {
         <button data-go="#/names">People &amp; publishers</button>
         <button data-go="#/authors">Authors</button>
         ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
-        <div class="mh lbl">Temporary tools</div>
-        <a href="import/" class="tool">Import</a>
       </div>` : ''}
     </div>`;
   // An open menu ends above the bottom bar, so its last items can always be scrolled to.
