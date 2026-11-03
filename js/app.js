@@ -211,7 +211,8 @@ function compare(sort) {
   const t = (a, b) => titleKey(a).localeCompare(titleKey(b));
   switch (sort) {
     case 'Title': return t;
-    case 'Recently added': return (a, b) => String(b.addedAt || '').localeCompare(String(a.addedAt || '')) || t(a, b);
+    // Newest first; books added on the same day (the big import batches) fall in author order.
+    case 'Recently added': return (a, b) => String(b.addedAt || '').localeCompare(String(a.addedAt || '')) || author(a).localeCompare(author(b)) || bySeries(a, b) || (yr(a) ?? 0) - (yr(b) ?? 0) || t(a, b);
     case 'Year': return (a, b) => (yr(a) ?? 9999) - (yr(b) ?? 9999) || t(a, b);
     case 'Language': return (a, b) => (LANGS[a.language] || 'zz').localeCompare(LANGS[b.language] || 'zz') || author(a).localeCompare(author(b)) || t(a, b);
     default: return (a, b) => author(a).localeCompare(author(b)) || bySeries(a, b) || (yr(a) ?? 0) - (yr(b) ?? 0) || t(a, b);
