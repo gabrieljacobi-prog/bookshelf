@@ -2558,6 +2558,16 @@ function tidyNationalities() {
   const list = [...S.authors.values()].filter((a) => !a.deleted && a.nationality && cleanNationality(a.nationality) !== a.nationality)
     .map((a) => ({ op: 'update', col: 'authors', id: a.id, data: { nationality: cleanNationality(a.nationality) } }));
   if (list.length) applyOps(list).catch(() => { tidyDone = false; });
+  tidyPublishers();
+}
+
+// One-off (6 Nov): the lookup sources spell Penguin's main paperback imprint
+// five ways. Penguin Classics, Modern Classics, Penguin Press and
+// Penguin – Companhia das Letras are real imprints and stay. Remove once run.
+const PENGUIN_6NOV = ['Penguin', 'Penguin UK', 'Penguin Books Ltd', 'Penguin Books, Limited'];
+function tidyPublishers() {
+  const ups = [...S.books.values()].filter((b) => PENGUIN_6NOV.includes(b.publisher)).map((b) => [b.id, { publisher: 'Penguin Books' }]);
+  if (ups.length) updateBooks(ups).catch(() => { tidyDone = false; });
 }
 
 // A change from the other phone. Wait while something is being typed (a lend
