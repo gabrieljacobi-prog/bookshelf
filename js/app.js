@@ -61,18 +61,18 @@ const I = {
   sort: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/></svg>',
   search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
   menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 9h18M9 15h12"/></svg>',
-  errata: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M6 3.5h8.5L18 7v13.5H6zM14.5 3.5V7H18M9 11h6M9 14h6M9 17h3.5"/></svg>',
-  sun: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></svg>',
-  moon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M19.5 14.5A8 8 0 019.5 4.5a8 8 0 1010 10z"/></svg>',
-  signOut: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></svg>',
-  signIn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M14 5h5v14h-5M10 8l4 4-4 4M14 12H4"/></svg>',
+  errata: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 3.5h8.5L18 7v13.5H6zM14.5 3.5V7H18M9 11h6M9 14h6M9 17h3.5"/></svg>',
+  sun: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></svg>',
+  moon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M19.5 14.5A8 8 0 019.5 4.5a8 8 0 1010 10z"/></svg>',
+  signOut: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></svg>',
+  signIn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M14 5h5v14h-5M10 8l4 4-4 4M14 12H4"/></svg>',
   x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-  check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
-  ring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>',
-  back: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>',
-  right: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true" style="color:var(--muted)"><path d="M9 6l6 6-6 6"/></svg>',
-  star: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 17l-5.4 3 1.2-6-4.5-4.2 6.1-.7z"/></svg>',
-  lend: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 12h13M12 7l5 5-5 5M20 5v14"/></svg>',
+  check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+  ring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>',
+  back: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>',
+  right: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" style="color:var(--muted)"><path d="M9 6l6 6-6 6"/></svg>',
+  star: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 17l-5.4 3 1.2-6-4.5-4.2 6.1-.7z"/></svg>',
+  lend: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 12h13M12 7l5 5-5 5M20 5v14"/></svg>',
   navLib: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5 4v16M9.5 4v16M14 5.5l4.5 14.5M3 20h18"/></svg>',
   navAdd: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M7.5 12h9"/></svg>',
   scan: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M3 8V5h3M18 5h3v3M21 16v3h-3M6 19H3v-3M7 8v8M9.5 8v8M12 8v8M15 8v8M17 8v8"/></svg>',
@@ -219,10 +219,10 @@ function pickTheme(k) {
   S.theme = k; store.set('theme', k); applyTheme();
   renderRail(); renderToolbar();
 }
-// Light and dark as two icons; the one in use is filled.
-const themeToggle = () => {
+// Light and dark as one row: it names the other theme and switches to it.
+const themeRow = (cls) => {
   const d = isDark();
-  return `<span class="theme-tg" role="group" aria-label="Theme"><button data-theme-pick="light" aria-pressed="${!d}" aria-label="Light theme">${I.sun}</button><button data-theme-pick="dark" aria-pressed="${d}" aria-label="Dark theme">${I.moon}</button></span>`;
+  return `<button class="${cls}" data-theme-pick="${d ? 'light' : 'dark'}">${d ? I.sun : I.moon}<span>${d ? 'Light' : 'Dark'}</span></button>`;
 };
 
 const yr = (b) => b.firstYear ?? b.year ?? null; // when the work came out, else this edition
@@ -395,7 +395,7 @@ function renderToolbar() {
       <button class="icon-btn" data-open="menu" aria-haspopup="true" aria-expanded="${S.open === 'menu'}" aria-label="Menu">${I.menu}</button>
       ${S.open === 'menu' ? `<div class="menu drop grain" role="menu" aria-label="Menu">
         ${isMember() ? `<button class="tap" role="menuitem" data-go="#/fix">${I.errata}<span>Errata</span></button>` : ''}
-        <div class="theme-row">${themeToggle()}</div>
+        ${themeRow('tap" role="menuitem')}
         ${u ? `<button class="tap" role="menuitem" data-act="signout">${I.signOut}<span>Sign out</span></button>`
           : `<button class="tap" role="menuitem" data-act="signin">${I.signIn}<span>Sign in</span></button>`}
       </div>` : ''}
@@ -408,7 +408,7 @@ function renderToolbar() {
       ${S.open === 'sort' ? `<div class="menu" role="menu" aria-label="Sort by">${items(SORTS, S.sort, 'sort')}</div>` : ''}
     </div>
     <span class="grow"></span>
-    ${desk ? `<div class="search-inline">${I.search}<input id="q" type="search" placeholder="Title, author or series" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off"><button class="icon-btn qx" id="qx" aria-label="Clear search"${S.q ? '' : ' hidden'}>${I.x}</button></div>`
+    ${desk ? `<div class="search-inline">${I.search}<input id="q" type="search" placeholder="${S.sheet ? 'Search' : 'Title, author or series'}" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off"><button class="icon-btn qx" id="qx" aria-label="Clear search"${S.q ? '' : ' hidden'}>${I.x}</button></div>`
       : `<button class="icon-btn" id="openSearch" aria-label="Search">${I.search}</button>${menuHtml}`}`;
   if (desk) {
     // Desktop search stays in the toolbar: × (or Escape) empties it.
@@ -434,7 +434,8 @@ function renderActive() {
   if (!el) return;
   const chips = activeChips();
   if (!chips.length || !S.loaded) { el.innerHTML = ''; el.hidden = true; return; }
-  const n = [...S.books.values()].filter((b) => passesFilters(b)).length;
+  const tokens = norm(S.q).split(/\s+/).filter(Boolean);
+  const n = [...S.books.values()].filter((b) => passesFilters(b) && matches(b, tokens)).length;
   el.hidden = false;
   el.innerHTML = `
     <div class="chips">${chips.map(([k, l]) => `<button class="chip-x ch6" data-unf="${esc(k)}" aria-label="Remove ${esc(l)}"><span>${esc(l)}</span>${I.xBold}</button>`).join('')}</div>
@@ -617,6 +618,8 @@ function renderList({ ifChanged = false } = {}) {
   const tokens = norm(S.q).split(/\s+/).filter(Boolean);
   const cmp = compare(S.sort);
   const books = [...S.books.values()].filter((b) => passesFilters(b) && matches(b, tokens)).sort(cmp);
+  const resN = $('#active .result .n');
+  if (resN) resN.textContent = books.length;
   // The heading says "Search results" or the filter, so it's part of what's shown.
   const shown = `${tokens.length > 0}|${m.n}|${books.map((b) => b.id).join(',')}`;
   if (ifChanged && shown === lastShown) return;
@@ -625,7 +628,7 @@ function renderList({ ifChanged = false } = {}) {
     const chips = activeChips();
     const last = chips[chips.length - 1];
     list.innerHTML = tokens.length || chips.length
-      ? `<div class="empty"><p>Nothing on ${S.cat === 'All' ? 'the shelves' : 'this shelf'} matches that.</p>${chips.length ? `<div class="empty-acts">${chips.length > 1 ? `<button class="btn-line ch8" data-unf="${esc(last[0])}"><span class="ch8i tap">Remove “${esc(last[1])}”</span></button>` : ''}<button class="btn-ink ch8 tap" data-clear="1">Clear all</button></div>` : ''}</div>`
+      ? `<div class="empty"><p>Nothing on ${S.cat === 'All' ? 'the shelves' : 'this shelf'} matches that.</p><div class="empty-acts">${tokens.length ? `<button class="${chips.length ? 'btn-line ch8"' : 'btn-ink ch8 tap"'} data-clearq="1">${chips.length ? '<span class="ch8i tap">Clear the search</span>' : 'Clear the search'}</button>` : ''}${chips.length > 1 ? `<button class="btn-line ch8" data-unf="${esc(last[0])}"><span class="ch8i tap">Remove “${esc(last[1])}”</span></button>` : ''}${chips.length ? '<button class="btn-ink ch8 tap" data-clear="1">Clear all</button>' : ''}</div></div>`
       : `<p class="empty">No books ${S.cat === 'All' ? 'here' : 'on this shelf'} yet.</p>`;
     return;
   }
@@ -685,6 +688,7 @@ document.addEventListener('click', async (e) => {
   if (t.id === 'openFilter') { S.open = null; if (S.sheet && desktop()) closeSheet(); else { renderToolbar(); openSheet(); } return; }
   if (t.dataset.unf) { removeChip(t.dataset.unf); filtersChanged(); return; }
   if (t.dataset.clear) { clearFilters(); filtersChanged(); return; }
+  if (t.dataset.clearq) { $('#qx')?.click(); return; }
   if (t.dataset.themePick) { pickTheme(t.dataset.themePick); return; }
   if (t.dataset.sort) { S.sort = t.dataset.sort; S.open = null; renderToolbar(); renderList(); return; }
   if (t.id === 'openSearch') { S.searching = true; S.open = null; renderToolbar(); return; }
@@ -831,12 +835,12 @@ function renderBook(id) {
   }).join('');
 
   el.innerHTML = `
-    <div class="book-top">${backLink()}${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
+    <div class="book-top">${backLink()}${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
     <div class="bk-main">
     <div class="bk-cover"><section class="plinth">
       ${coverHtml}
       <div class="line" aria-hidden="true"></div>
-      <div class="check lbl">${b.verified ? `${I.check}Edition checked` : b.needsFix ? '<span class="dot"></span>Marked as the wrong edition' : '<span class="dot"></span>Edition not checked yet'}</div>
+      ${member ? `<div class="check lbl">${b.verified ? `${I.check}Edition checked` : b.needsFix ? 'Marked as the wrong edition' : 'Edition not checked yet'}</div>` : ''}
     </section></div>
     <div class="bk-side">
     ${fixPanelHtml(b)}
@@ -850,8 +854,10 @@ function renderBook(id) {
       ${seriesRow}
     </section>
     ${readers}
+    <div class="bk-acts">
     ${member ? `<div class="lend"><button class="btn-line ch8 hof-btn" id="hof" aria-pressed="${!!b.hallOfFame}" style="width:100%;height:56px"><span class="ch8i tap">${I.star}${b.hallOfFame ? 'In the Hall of Fame' : 'Add to the Hall of Fame'}</span></button></div>` : ''}
     ${lending}
+    </div>
     ${leaving}
     </div>
     </div>
@@ -1107,8 +1113,8 @@ function renderCollection(key) {
   const nums = shelved.map((b) => b.collectionNo).filter((n) => n != null && n !== '');
   const count = `${shelved.length} ${shelved.length === 1 ? 'book' : 'books'}`;
   const meta = !nums.length ? `${count} · no numbers yet`
-    : nums.length === 1 ? `${count} · number ${nums[0]}`
-    : `${count} · numbers ${nums[0]} to ${nums.at(-1)}`;
+    : nums.length === 1 ? `${count} · No. ${nums[0]}`
+    : `${count} · Nos. ${nums[0]} to ${nums.at(-1)}`;
   const spines = shelved.slice(0, 12).map((b, i) => `<span style="height:${40 + ((i * 17) % 22)}px"></span>`).join('');
   const m = metrics();
   const rename = !member ? '' : collUI.mode === 'rename'
@@ -1117,7 +1123,7 @@ function renderCollection(key) {
         <p class="sec-hint" style="padding:6px 0 0">The new name is used on all ${c.books.length} books.</p>
         <div class="acts"><button type="button" class="cancel tap" id="cancelColl">Cancel</button><button type="submit" class="btn-ink tap ch8" style="padding:0 26px"${collUI.busy ? ' disabled' : ''}>Save</button></div>
       </form>`
-    : '<button class="quiet tap" id="renameColl">Rename collection</button>';
+    : '<div class="aacts"><button class="btn-line ch8" id="renameColl"><span class="ch8i tap">Rename collection</span></button></div>';
   el.innerHTML = `
     ${top}
     <header class="ahead chead">
@@ -1234,7 +1240,7 @@ function renderAuthor(id) {
       <div class="arch big" aria-hidden="true">${esc(initials(name))}</div>
       ${roles.length ? `<div class="lbl">${esc(roles.join(' · '))}</div>` : ''}
       <h1 class="disp${name.length > 22 ? ' long' : ''}">${esc(name)}</h1>
-      ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
+      ${meta && !(member && a) ? `<p class="meta">${esc(meta)}</p>` : ''}
     </header>
     ${about}
     <div class="agrid" style="${gridStyle(m)}">${shelves || '<p class="empty">None of their books are on the shelves now.</p>'}</div>
@@ -2348,35 +2354,52 @@ function dupesFor(isbn, rec) {
 function renderAdd() {
   const el = $('#add');
   if (!isMember()) {
-    el.innerHTML = `<header class="page-head" style="padding-top:28px"><h1 class="disp">Add a book</h1></header><p class="empty">Sign in from the library menu to add books.</p>`;
+    el.innerHTML = `<header class="page-head" style="padding-top:28px"><h1 class="disp">Add book</h1></header><p class="empty">Sign in from the library menu to add books.</p>`;
     return;
   }
   const A = ADD;
   const msg = A.msg ? `<p class="add-msg" role="status">${esc(A.msg)}</p>` : '';
   if (A.step === 'start' || A.step === 'scanning') {
     const scanning = A.step === 'scanning';
-    el.innerHTML = `
-      <header class="page-head" style="padding-top:28px"><h1 class="disp">Add a book</h1>
-        <p>Scan the barcode on the back. Older paperbacks often have it inside the front cover.</p></header>
+    const scan = `
       <section class="scanbox">
         <div class="scanv${scanning ? ' on' : ''}">
           <video id="addVideo" playsinline muted></video>
           ${scanning ? '<div class="guide" id="addGuide"></div>' : `<button class="scan-go" id="scanGo">${I.scan}<span class="tap">Scan the barcode</span></button>`}
         </div>
         ${scanning ? `<div class="scan-acts"><span class="lbl">Hold the barcode inside the band</span><button class="cancel tap" id="scanStop">Stop</button></div>` : ''}
-      </section>
-      ${msg}
-      <section class="add-alt">
-        <label class="btn-line ch8"><span class="ch8i tap">Photo of the barcode</span><input type="file" accept="image/*" capture="environment" id="barPhoto" hidden></label>
-        <form class="isbnf" id="isbnForm" novalidate>
-          <label class="lbl" for="addIsbn">Or type the ISBN</label>
+      </section>`;
+    const photo = `<label class="btn-line ch8"><span class="ch8i tap">Photo of the barcode</span><input type="file" accept="image/*" capture="environment" id="barPhoto" hidden></label>`;
+    const isbn = (label) => `<form class="isbnf" id="isbnForm" novalidate>
+          <label class="lbl" for="addIsbn">${label}</label>
           <div class="row"><input id="addIsbn" inputmode="numeric" autocomplete="off" placeholder="978…" value="${esc(A.isbn)}"><button type="submit" class="btn-ink tap ch8">Look up</button></div>
-        </form>
-        <div class="add-or">
+        </form>`;
+    const search = `<div class="add-or">
           <button class="btn-line ch8" id="toSearch"><span class="ch8i tap">Search by title or author</span></button>
           <span class="hint">When there's no barcode or it won't scan.</span>
-        </div>
-        <button class="ok tap" id="noIsbn">Or fill it in by hand</button>
+        </div>`;
+    const hand = '<button class="ok tap" id="noIsbn">Or fill it in by hand</button>';
+    // On a laptop the camera is the awkward way in, so typing the ISBN comes first
+    // and the scanner sits smaller below.
+    el.innerHTML = desktop() ? `
+      <header class="page-head" style="padding-top:28px"><h1 class="disp">Add book</h1>
+        <p>Type the ISBN from the back cover, or scan its barcode with the camera. Older paperbacks often have it inside the front cover.</p></header>
+      ${msg}
+      <section class="add-alt add-desk">
+        ${isbn('ISBN')}
+        ${search}
+        <div class="add-scan"><span class="lbl">Or scan it</span>${scan}${photo}</div>
+        ${hand}
+      </section>` : `
+      <header class="page-head" style="padding-top:28px"><h1 class="disp">Add book</h1>
+        <p>Scan the barcode on the back. Older paperbacks often have it inside the front cover.</p></header>
+      ${scan}
+      ${msg}
+      <section class="add-alt">
+        ${photo}
+        ${isbn('Or type the ISBN')}
+        ${search}
+        ${hand}
       </section>`;
     $('#scanGo')?.addEventListener('click', startAddScan);
     $('#scanStop')?.addEventListener('click', () => { endScan(); renderAdd(); });
@@ -2622,7 +2645,21 @@ document.addEventListener('visibilitychange', () => {
 // Shelves, the three main places, Errata and the theme, and signing in or out at
 // the foot. Hidden on phones, where the shelf row, bottom bar and menu do this.
 
+// The browser tab names the page: "Beloved · Bookshelf", "Errata · Bookshelf".
+function setTitle() {
+  const h = location.hash, v = viewOf(h);
+  const id = (n) => decodeURIComponent(h.slice(n));
+  const t = v === 'book' ? S.books.get(id(7))?.title
+    : v === 'edit' ? 'Edit'
+    : v === 'author' ? (S.authors.get(id(9))?.name || peopleOnShelves().get(id(9))?.books?.[0]?.people?.find((p) => p.authorId === id(9))?.name)
+    : v === 'collection' ? collectionsOnShelves().get(id(13))?.name
+    : { fix: 'Errata', names: 'People & publishers', authors: 'Authors', add: 'Add book', adddetails: 'Add book' }[v]
+    || (S.cat !== 'All' ? S.cat : null);
+  document.title = t ? `${t} · Bookshelf` : 'Bookshelf';
+}
+
 function renderRail() {
+  setTitle();
   const el = $('#rail');
   if (!el) return;
   const v = viewOf(location.hash);
@@ -2641,7 +2678,7 @@ function renderRail() {
     </nav>
     <div class="rail-sec">
       ${isMember() ? `<a class="tap rl" href="#/fix"${here(['fix', 'names', 'authors'].includes(v))}>${I.errata}Errata</a>` : ''}
-      <div class="rail-theme">${themeToggle()}</div>
+      ${themeRow('tap rl')}
     </div>
     <div class="rail-grow"></div>
     <div class="rail-sec rail-foot">

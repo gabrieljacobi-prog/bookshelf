@@ -223,7 +223,6 @@ body.sheet-open { overflow: hidden; }
 .plinth .cover.ph { --phPad: 18px 16px 20px; --phA: 15px; --phT: 28px; }
 .plinth .line { width: 280px; max-width: 80%; border-top: 1px solid var(--rule); }
 .plinth .check { display: flex; align-items: center; gap: 6px; margin-top: 18px; }
-.plinth .check .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .intro { padding: 28px 20px 24px; }
 .intro h1 { margin: 12px 0 14px; font-size: 46px; line-height: 1.04; letter-spacing: -.01em; overflow-wrap: break-word; }
 .intro h1.long { font-size: 38px; }
@@ -242,7 +241,6 @@ body.sheet-open { overflow: hidden; }
 .chead .spines { display: flex; align-items: flex-end; gap: 4px; height: 64px; margin-bottom: 26px; }
 .chead .spines span { display: block; width: 14px; border: 1px solid var(--rule); background: var(--surface); }
 .chead .spines i { flex: 1; height: 0; border-top: 1px solid var(--rule); }
-.chead .quiet { display: inline-flex; align-items: center; height: 44px; margin: 10px 0 0 -2px; padding: 0 2px; background: none; border: 0; color: var(--muted); font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px; }
 .readers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .readers button { text-align: left; min-height: 76px; padding: 14px 20px; background: none; border: 0; }
 .readers button + button { border-left: 1px solid var(--rule); }
@@ -343,7 +341,7 @@ body.sheet-open { overflow: hidden; }
 .ecov .cv { flex: none; display: flex; align-items: flex-end; min-height: 120px; }
 .ecov .cv .cover img { width: 100%; height: 100%; object-fit: contain; }
 .ecov .side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.ecov .acts { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ecov .acts { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: max-content; max-width: 100%; }
 .ecov .acts .btn-line { height: 40px; cursor: pointer; text-decoration: none; }
 .ecov .acts .btn-line > span { padding: 0 14px; }
 .ecov .ok, #editCover .ok { min-height: 40px; padding: 0; background: none; border: 0; color: var(--accentText); text-align: left; }
@@ -551,14 +549,6 @@ a.person { text-decoration: none; color: inherit; }
 .dd.dd-drop { position: static; }
 .menu.drop { top: 100%; left: 0; right: 0; min-width: 0; border: 0; border-bottom: 1px solid var(--rule); box-shadow: 0 16px 24px -16px rgba(0,0,0,.3); background-color: var(--surface); }
 .menu.drop > button { justify-content: flex-start; gap: 14px; min-height: 56px; padding: 0 20px; font: 500 16px var(--label); letter-spacing: .05em; text-transform: lowercase; }
-.menu.drop .theme-row { display: flex; align-items: center; min-height: 64px; padding: 0 20px; border-top: 1px solid var(--rule); }
-.menu.drop > .theme-row:first-child { border-top: 0; }
-
-/* Light / dark: two icons, the one in use filled */
-.theme-tg { display: inline-flex; border: 1px solid var(--rule); }
-.theme-tg button, .menu .theme-tg button { width: 44px; min-height: 0; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; background: none; border: 0; color: var(--ink); }
-.theme-tg button + button, .menu .theme-tg button + button { border-left: 1px solid var(--rule); }
-.theme-tg button[aria-pressed="true"], .menu .theme-tg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 
 /* --- Desktop rail ---------------------------------------------------------------------- */
 
@@ -572,8 +562,6 @@ a.person { text-decoration: none; color: inherit; }
 .rl { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 48px; padding: 0; background: none; border: 0; color: var(--ink); text-decoration: none; font-size: 17px; text-align: left; }
 .rl[aria-current="page"] { color: var(--accentText); }
 .rl svg { width: 22px; height: 22px; }
-.rail-theme { display: flex; align-items: center; min-height: 48px; }
-.rail-theme .theme-tg button { width: 40px; height: 40px; }
 .rail-grow { flex: 1; min-height: 24px; }
 .rail-foot { padding-bottom: 0; }
 .search-inline { display: flex; align-items: center; gap: 10px; flex: 0 1 300px; min-width: 44px; height: 44px; padding: 0 0 0 4px; overflow: hidden; }
@@ -583,7 +571,7 @@ a.person { text-decoration: none; color: inherit; }
 .foot-note { font-size: 15px; font-style: italic; color: var(--muted); margin-left: auto; }
 
 /* Book page wrappers: plain flow on a phone, two columns on desktop. */
-.bk-main, .bk-cover, .bk-side, .bk-blocks { display: contents; }
+.bk-main, .bk-cover, .bk-side, .bk-blocks, .bk-acts { display: contents; }
 
 /* --- Desktop: 1024 px and wider -------------------------------------------------------- */
 
@@ -593,32 +581,33 @@ a.person { text-decoration: none; color: inherit; }
   :root { --railW: clamp(208px, 14.5vw, 248px); --panelW: clamp(340px, 25vw, 400px); }
   .nav { display: none; }
   .toast { bottom: 24px; }
-  .rail { display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: var(--railW); padding: clamp(24px, 3.2vh, 40px) 22px 20px; border-right: 1px solid var(--rule); overflow-y: auto; }
-  .rail-mark { font-size: clamp(24px, 1.8vw, 30px); min-height: 40px; padding-bottom: 10px; }
+  /* The rule under the wordmark sits at 64 px, level with the book page's top bar and the filter panel's head. */
+  .rail { display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: var(--railW); padding: 0 22px 20px; border-right: 1px solid var(--rule); overflow-y: auto; }
+  .rail-mark { flex: none; height: 64px; min-height: 0; padding: 4px 0 0; font-size: clamp(24px, 1.8vw, 30px); }
   .rail-sec { padding: 8px 0; }
   .rail-shelves button { min-height: 40px; font-size: clamp(18px, 1.35vw, 22px); }
   .rail-shelves .n { font-size: 13px; }
   .rl { min-height: 40px; gap: 12px; font-size: 15px; }
   .rl svg { width: 20px; height: 20px; }
-  .rail-theme { min-height: 44px; }
-  .rail-theme .theme-tg button { width: 36px; height: 36px; }
   .app { max-width: none; margin: 0 0 0 var(--railW); padding-bottom: 0; }
   body.panel-open .app { margin-right: var(--panelW); }
   /* Pages without a desktop design yet: a centred column. */
-  #author, #collection, #fix, #names, #authors, #add { max-width: 760px; margin: 0 auto; padding-bottom: 64px; }
-  #book:has(.editf) { max-width: 760px; margin: 0 auto; }
+  /* Pages without a desktop design yet: a 760 px column, its text on the library's 48 px margin. */
+  #author, #collection, #fix, #names, #authors, #add { max-width: 788px; margin: 0; padding: 0 0 64px 28px; }
+  #book:has(.editf) { max-width: 788px; margin: 0; padding-left: 28px; }
+  #book:has(.editf) .book-top { height: 56px; padding: 8px 12px 0 8px; }
 
   /* Library */
   .shelves-wrap { display: none; }
   .hero { padding: clamp(28px, 4.5vh, 52px) 48px clamp(18px, 2.6vh, 28px); gap: 24px; }
   .hero h1 { font-size: clamp(60px, 5.4vw, 100px); line-height: .92; letter-spacing: -.025em; }
-  body.panel-open .hero h1 { font-size: clamp(52px, 4.4vw, 84px); }
   .hero .count { font-size: clamp(30px, 2.4vw, 42px); }
   .compact { padding: 18px 48px 0; }
   .toolbar { height: 56px; padding: 0 40px 0 36px; border-top: 1px solid var(--rule); gap: 4px; }
   .sticky.is-stuck .toolbar { border-top: 1px solid var(--rule); }
   .toolbar .tap { font-size: 16px; }
   .filter-btn, .dd > button { padding: 0 12px; height: 44px; }
+  .filter-btn[aria-expanded="true"] { color: var(--accentText); }
   .toolbar .sep { margin: 0 6px; }
   #active { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 20px 48px 0; }
   #active .result { height: auto; margin-top: 0; gap: 24px; }
@@ -632,8 +621,8 @@ a.person { text-decoration: none; color: inherit; }
   #sheet.side .sheet-back { display: none; }
   #sheet.side .sheet { top: 0; transform: none; transition: none; clip-path: none; box-shadow: none; border-left: 1px solid var(--rule); max-width: none; margin: 0; }
   #sheet.side .grab { display: none; }
-  #sheet.side .sheet-head { padding: 28px 18px 14px 28px; touch-action: auto; }
-  #sheet.side .sheet-head h2 { font-size: 34px; }
+  #sheet.side .sheet-head { box-sizing: border-box; height: 64px; padding: 0 14px 0 28px; touch-action: auto; }
+  #sheet.side .sheet-head h2 { font-size: 30px; }
   #sheet.side .sheet-body { padding: 0 28px 24px; }
   #sheet.side .sheet-foot { padding: 8px 28px 20px; }
 
@@ -654,6 +643,17 @@ a.person { text-decoration: none; color: inherit; }
   .bk-side .readers { margin-top: 28px; }
   .bk-side .readers button { min-height: 76px; padding: 14px 20px; }
   .bk-side .lend { margin: 24px 0 0; }
+  .bk-acts { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 28px; }
+  .bk-acts > .lend { flex: 1 1 240px; margin: 0; }
+  .bk-acts > .lend:has(.card) { flex-basis: 100%; }
+
+  /* Add book: the ISBN first, the camera smaller below */
+  .add-desk { padding-top: 8px; }
+  .add-desk .isbnf { padding-top: 0; border-top: 0; max-width: 480px; }
+  .add-desk .add-scan { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; width: 100%; padding-top: 20px; border-top: 1px solid var(--rule); }
+  .add-desk .scanbox { width: 100%; max-width: 420px; padding: 0; }
+  .add-desk .add-scan > .btn-line { height: 48px; cursor: pointer; }
+  .add-desk .add-scan > .btn-line > span { padding: 0 18px; }
   .bk-blocks { display: flex; flex-wrap: wrap; gap: 48px clamp(40px, 5vw, 80px); padding: 48px 48px 96px; border-top: 1px solid var(--rule); }
   .bk-blocks .block { flex: 0 1 440px; min-width: 0; padding: 0 !important; }
   .bk-blocks .block h2 { font-size: 30px; margin-bottom: 12px; }
