@@ -43,7 +43,7 @@ const S = {
 
 // Desktop: a side rail instead of the bottom bar and menu, a wider grid, and the
 // filter as a panel beside the shelf.
-const RAIL_W = 264, PANEL_W = 400;
+const RAIL_W = 240; // only a fallback: the rail's width follows the window (CSS --railW)
 const deskMQ = matchMedia('(min-width: 1024px)');
 const desktop = () => deskMQ.matches;
 
@@ -408,9 +408,17 @@ function renderToolbar() {
       ${S.open === 'sort' ? `<div class="menu" role="menu" aria-label="Sort by">${items(SORTS, S.sort, 'sort')}</div>` : ''}
     </div>
     <span class="grow"></span>
-    ${desk ? `<label class="search-inline">${I.search}<input id="q" type="search" placeholder="Title, author or series" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off"></label>`
+    ${desk ? `<div class="search-inline">${I.search}<input id="q" type="search" placeholder="Title, author or series" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off"><button class="icon-btn qx" id="qx" aria-label="Clear search"${S.q ? '' : ' hidden'}>${I.x}</button></div>`
       : `<button class="icon-btn" id="openSearch" aria-label="Search">${I.search}</button>${menuHtml}`}`;
-  if (desk) wireSearch($('#q'));
+  if (desk) {
+    // Desktop search stays in the toolbar: × (or Escape) empties it.
+    const q = $('#q'), qx = $('#qx');
+    wireSearch(q);
+    const clear = () => { clearTimeout(searchT); q.value = ''; S.q = ''; S.searching = false; qx.hidden = true; renderList(); q.focus(); };
+    q.addEventListener('input', () => { qx.hidden = !q.value; });
+    q.addEventListener('keydown', (e) => { if (e.key === 'Escape' && q.value) { e.preventDefault(); e.stopPropagation(); clear(); } });
+    qx.addEventListener('click', clear);
+  }
   // An open menu ends above the bottom bar, so its last items can always be scrolled to.
   const menu = tb.querySelector('.menu');
   if (menu) {
@@ -730,7 +738,9 @@ function renderBook(id) {
   const translators = nameLinks(people.filter((x) => x.role === 'translator'));
 
   // Cover on its plinth: fit a 220 × 300 box (300 × 460 on desktop), never cropped.
-  const [boxW, boxH] = desktop() ? [300, 460] : [220, 300];
+  // On desktop the box follows the window: 230 px wide on a 13" laptop, 300 on a large screen.
+  const dw = Math.round(Math.min(300, Math.max(220, innerWidth * 0.155)));
+  const [boxW, boxH] = desktop() ? [dw, Math.round(dw * 1.53)] : [220, 300];
   const r = b.cover?.w ? b.cover.w / b.cover.h : 0.66;
   let cw = boxW, chh = Math.round(boxW / r);
   if (chh > boxH) { chh = boxH; cw = Math.round(boxH * r); }
