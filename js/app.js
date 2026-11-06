@@ -2558,15 +2558,28 @@ function tidyNationalities() {
   const list = [...S.authors.values()].filter((a) => !a.deleted && a.nationality && cleanNationality(a.nationality) !== a.nationality)
     .map((a) => ({ op: 'update', col: 'authors', id: a.id, data: { nationality: cleanNationality(a.nationality) } }));
   if (list.length) applyOps(list).catch(() => { tidyDone = false; });
-  tidyPublishers();
+  tidyBooks6Nov();
 }
 
-// One-off (6 Nov): the lookup sources spell Penguin's main paperback imprint
-// five ways. Penguin Classics, Modern Classics, Penguin Press and
-// Penguin – Companhia das Letras are real imprints and stay. Remove once run.
+// One-off (6 Nov), on a member's next open; each change only applies while
+// the old value is still there, so a later edit in the app wins. Remove once run.
+// - The lookup sources spell Penguin's main paperback imprint five ways.
+//   Penguin Classics, Modern Classics, Penguin Press and Penguin – Companhia
+//   das Letras are real imprints and stay.
+// - Chinaman and An Instance of the Fingerpost are Vintage (from Gabriel).
+// - Foraged & Grown has no illustrator; Otto Penzler came from a lookup.
 const PENGUIN_6NOV = ['Penguin', 'Penguin UK', 'Penguin Books Ltd', 'Penguin Books, Limited'];
-function tidyPublishers() {
-  const ups = [...S.books.values()].filter((b) => PENGUIN_6NOV.includes(b.publisher)).map((b) => [b.id, { publisher: 'Penguin Books' }]);
+const VINTAGE_6NOV = ['bs19803145', 'bs318345'];
+function tidyBooks6Nov() {
+  const ups = [];
+  for (const b of S.books.values()) {
+    if (PENGUIN_6NOV.includes(b.publisher)) ups.push([b.id, { publisher: 'Penguin Books' }]);
+    else if (VINTAGE_6NOV.includes(b.id) && b.publisher === 'Penguin Random House') ups.push([b.id, { publisher: 'Vintage' }]);
+    const people = b.people || [];
+    if (/^Foraged/.test(b.title || '') && people.some((p) => p.name === 'Otto Penzler')) {
+      ups.push([b.id, { people: people.filter((p) => p.name !== 'Otto Penzler') }]);
+    }
+  }
   if (ups.length) updateBooks(ups).catch(() => { tidyDone = false; });
 }
 
