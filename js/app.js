@@ -985,13 +985,14 @@ async function saveAuthor(id, fields, msg) {
 // A text field with suggestions drawn by the app: [name, count] pairs, matching
 // anywhere in the name, accents ignored. A short list shows in full on focus;
 // a long one waits for a letter. Tap fills the field; typing a new name is fine.
-function suggest(input, what, options) {
+function suggest(input, what, options, { next = true } = {}) {
   if (!input) return;
+  const row = input.closest('.fr, .pr');
   const box = document.createElement('ul');
   box.className = 'sugg';
   box.hidden = true;
   box.setAttribute('aria-label', `${what[0].toUpperCase() + what.slice(1)}s in the library`);
-  input.closest('.fr').appendChild(box);
+  if (row.classList.contains('pr')) row.after(box); else row.appendChild(box); // a person row is a grid
   input.setAttribute('autocomplete', 'off');
   const draw = () => {
     const all = options().sort((a, b) => a[0].localeCompare(b[0]));
@@ -1013,7 +1014,7 @@ function suggest(input, what, options) {
     input.value = v;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     box.hidden = true; // the input event redrew it
-    input.closest('.fr').nextElementSibling?.querySelector('input')?.focus();
+    if (next) row.nextElementSibling?.querySelector('input')?.focus();
   });
 }
 
@@ -1827,8 +1828,6 @@ function renderEdit(id) {
   const opt = (v, label, cur) => `<option value="${esc(v)}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${esc(label)}</option>`;
   const fmt = b.format === 'ebook' ? 'ebook' : b.binding || 'paperback'; // most books are paperbacks
   const langKnown = !b.language || EDIT_LANGS.some(([k]) => k === b.language);
-  const publishers = [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))].sort();
-  const names = [...S.authors.values()].map((x) => x.name).sort();
   const field = (label, name, value, extra = '') => `
     <div class="fr"><label class="lbl" for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value ?? '')}" autocomplete="off" ${extra}></div>`;
 
@@ -1852,7 +1851,7 @@ function renderEdit(id) {
       </section>
       <section class="block">
         <h2 class="disp">The edition</h2>
-        ${field('Publisher', 'publisher', b.publisher, 'list="dl-pub"')}
+        ${field('Publisher', 'publisher', b.publisher, 'data-sugg="publisher"')}
         ${field('This edition', 'year', b.year, 'inputmode="numeric" maxlength="4" style="max-width:120px"')}
         <div class="fr"><label class="lbl" for="f-language">Language</label><select id="f-language" name="language">${opt('', '—', b.language || '')}${EDIT_LANGS.map(([k, l]) => opt(k, l, b.language)).join('')}${langKnown ? '' : opt(b.language, b.language, b.language)}</select></div>
         <div class="fr"><label class="lbl" for="f-format">Format</label><select id="f-format" name="format">${[['paperback', 'Paperback'], ['hardcover', 'Hardcover'], ['ebook', 'Ebook']].map(([k, l]) => opt(k, l, fmt)).join('')}</select></div>
@@ -1866,7 +1865,7 @@ function renderEdit(id) {
         <div class="ppl">${people.map((p, i) => `
           <div class="pr">
             <select aria-label="Role" data-pi="${i}" data-pk="role">${EDIT_ROLES.map((r) => opt(r, ROLES[r], p.role)).join('')}</select>
-            <input aria-label="Name" data-pi="${i}" data-pk="name" value="${esc(p.name)}" list="dl-names" autocomplete="off" placeholder="Name">
+            <input aria-label="Name" data-pi="${i}" data-pk="name" value="${esc(p.name)}" data-sugg="person" autocomplete="off" placeholder="Name">
             <button type="button" class="icon-btn" data-pdel="${i}" aria-label="Remove ${esc(p.name || 'person')}">${I.x}</button>
           </div>`).join('')}
         </div>
@@ -1881,8 +1880,6 @@ function renderEdit(id) {
         <a class="cancel tap" href="${backHref}">${isNew ? 'Back' : 'Cancel'}</a>
         <button type="submit" class="btn-ink tap ch8" style="padding:0 30px">${isNew ? 'Add to the library' : 'Save'}</button>
       </div>
-      <datalist id="dl-pub">${publishers.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
-      <datalist id="dl-names">${names.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
     </form>`;
 
   // Series and collection: our own list of what's already in the library, since
@@ -1891,6 +1888,12 @@ function renderEdit(id) {
   for (const x of S.books.values()) if (x.seriesId && !x.archived) seriesCount.set(x.seriesId, (seriesCount.get(x.seriesId) || 0) + 1);
   suggest($('[data-sugg="series"]', el), 'series', () => [...S.series.values()].filter((x) => seriesCount.has(x.id)).map((x) => [x.name, seriesCount.get(x.id)]));
   suggest($('[data-sugg="collection"]', el), 'collection', () => [...collectionsOnShelves().values()].map((c) => [c.name, c.books.filter((x) => !x.archived).length]));
+  const pubCount = new Map();
+  for (const x of shelfBooks()) if (x.publisher) pubCount.set(x.publisher, (pubCount.get(x.publisher) || 0) + 1);
+  suggest($('[data-sugg="publisher"]', el), 'publisher', () => [...pubCount]);
+  const onShelves = peopleOnShelves();
+  const personOpts = () => [...onShelves].map(([pid, e]) => [S.authors.get(pid)?.name || e.books[0].people.find((x) => x.authorId === pid)?.name, e.books.length]).filter(([n]) => n);
+  el.querySelectorAll('[data-sugg="person"]').forEach((x) => suggest(x, 'person', personOpts, { next: false }));
   el.querySelectorAll('[data-pi]').forEach((x) => x.addEventListener(x.tagName === 'SELECT' ? 'change' : 'input', () => {
     people[Number(x.dataset.pi)][x.dataset.pk] = x.value;
   }));
