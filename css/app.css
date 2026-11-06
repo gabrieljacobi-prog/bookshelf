@@ -92,13 +92,6 @@ svg { display: block; flex: none; }
 .shelves-wrap .fade.r { right: 0; width: 56px; background: linear-gradient(to left, var(--bg), transparent); }
 .shelves-wrap.more-l .fade.l, .shelves-wrap.more-r .fade.r { opacity: 1; }
 
-.review { display: flex; align-items: center; border-bottom: 1px solid var(--rule); }
-.review > button:first-child { flex: 1; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 4px 0 20px; background: none; border: 0; text-align: left; }
-.review .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
-.review .what { flex: 1; font-size: 16px; font-style: italic; }
-.review .go { color: var(--accentText); }
-.review .x { width: 48px; height: 52px; color: var(--muted); }
-
 .sticky { position: sticky; top: 0; z-index: 10; }
 .compact { display: flex; align-items: baseline; justify-content: space-between; height: 56px; padding: 18px 20px 0; }
 .compact .n { font-size: 22px; line-height: 1; color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
@@ -186,7 +179,9 @@ body.sheet-open { overflow: hidden; }
 .menu > :first-child { border-top: 0; }
 .menu .note { padding: 10px 16px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--rule); }
 .search { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
-.search input { flex: 1; min-width: 0; height: 40px; padding: 0 4px; background: none; border: 0; border-bottom: 1px solid var(--ink); font-size: 18px; font-style: italic; outline: none; }
+/* No underline of its own: the toolbar's rules already frame it (never two rules stacked). */
+.search input { flex: 1; min-width: 0; height: 40px; padding: 0 4px; background: none; border: 0; font-size: 18px; font-style: italic; outline: none; }
+.search input::placeholder, .search-inline input::placeholder { color: var(--muted); opacity: 1; }
 
 .section-head { display: flex; align-items: baseline; gap: 14px; padding: 40px 20px 18px; }
 .list > .section:first-child .section-head { padding-top: 24px; }
@@ -550,3 +545,103 @@ a.person { text-decoration: none; color: inherit; }
 .sugg li { border-bottom: 1px solid var(--rule); }
 .sugg button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 0 2px; background: none; border: 0; color: inherit; text-align: left; font: inherit; font-size: 17px; text-transform: none; letter-spacing: normal; cursor: pointer; }
 .sugg .new { display: flex; align-items: center; min-height: 48px; padding: 0 2px; color: var(--muted); font-style: italic; font-size: 16px; }
+
+/* --- Menu (phone): a panel dropping from under the toolbar -------------------------- */
+
+.dd.dd-drop { position: static; }
+.menu.drop { top: 100%; left: 0; right: 0; min-width: 0; border: 0; border-bottom: 1px solid var(--rule); box-shadow: 0 16px 24px -16px rgba(0,0,0,.3); background-color: var(--surface); }
+.menu.drop > button { justify-content: flex-start; gap: 14px; min-height: 56px; padding: 0 20px; font: 500 16px var(--label); letter-spacing: .05em; text-transform: lowercase; }
+.menu.drop .theme-row { display: flex; align-items: center; min-height: 64px; padding: 0 20px; border-top: 1px solid var(--rule); }
+.menu.drop > .theme-row:first-child { border-top: 0; }
+
+/* Light / dark: two icons, the one in use filled */
+.theme-tg { display: inline-flex; border: 1px solid var(--rule); }
+.theme-tg button, .menu .theme-tg button { width: 44px; min-height: 0; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; background: none; border: 0; color: var(--ink); }
+.theme-tg button + button, .menu .theme-tg button + button { border-left: 1px solid var(--rule); }
+.theme-tg button[aria-pressed="true"], .menu .theme-tg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+/* --- Desktop rail ---------------------------------------------------------------------- */
+
+.rail { display: none; }
+.rail-mark { display: flex; align-items: center; min-height: 48px; padding-bottom: 12px; font-size: 32px; line-height: 1; letter-spacing: -.01em; text-decoration: none; }
+.rail-sec { padding: 12px 0; border-top: 1px solid var(--rule); }
+.rail-shelves button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; padding: 0; background: none; border: 0; font-size: 24px; line-height: 1; letter-spacing: -.005em; color: var(--soft); font-weight: 300; text-align: left; }
+.rail-shelves button[aria-current="page"] { color: var(--ink); font-weight: 420; }
+.rail-shelves .n { font: 400 14px var(--display); letter-spacing: 0; color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
+.rail-shelves [aria-current="page"] .n { color: var(--accentText); }
+.rl { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 48px; padding: 0; background: none; border: 0; color: var(--ink); text-decoration: none; font-size: 17px; text-align: left; }
+.rl[aria-current="page"] { color: var(--accentText); }
+.rl svg { width: 22px; height: 22px; }
+.rail-theme { display: flex; align-items: center; min-height: 48px; }
+.rail-theme .theme-tg button { width: 40px; height: 40px; }
+.rail-grow { flex: 1; min-height: 24px; }
+.rail-foot { padding-bottom: 0; }
+.search-inline { display: flex; align-items: center; gap: 10px; flex: 0 1 300px; min-width: 44px; height: 44px; padding: 0 4px; overflow: hidden; }
+.search-inline input { flex: 1; min-width: 0; height: 42px; padding: 0; background: none; border: 0; outline: none; color: var(--ink); font-size: 17px; font-style: italic; }
+.foot-note { font-size: 15px; font-style: italic; color: var(--muted); margin-left: auto; }
+
+/* Book page wrappers: plain flow on a phone, two columns on desktop. */
+.bk-main, .bk-cover, .bk-side, .bk-blocks { display: contents; }
+
+/* --- Desktop: 1024 px and wider -------------------------------------------------------- */
+
+@media (min-width: 1024px) {
+  .nav { display: none; }
+  .toast { bottom: 24px; }
+  .rail { display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: 264px; padding: 44px 28px 28px; border-right: 1px solid var(--rule); overflow-y: auto; }
+  .app { max-width: none; margin: 0 0 0 264px; padding-bottom: 0; }
+  body.panel-open .app { margin-right: 400px; }
+  /* Pages without a desktop design yet: a centred column. */
+  #author, #collection, #fix, #names, #authors, #add { max-width: 760px; margin: 0 auto; padding-bottom: 64px; }
+  #book:has(.editf) { max-width: 760px; margin: 0 auto; }
+
+  /* Library */
+  .shelves-wrap { display: none; }
+  .hero { padding: 56px 48px 30px; gap: 24px; }
+  .hero h1 { font-size: 112px; line-height: .92; letter-spacing: -.025em; }
+  body.panel-open .hero h1 { font-size: 96px; }
+  .hero .count { font-size: 44px; }
+  .compact { padding: 18px 48px 0; }
+  .toolbar { height: 60px; padding: 0 40px 0 36px; border-top: 1px solid var(--rule); gap: 4px; }
+  .sticky.is-stuck .toolbar { border-top: 1px solid var(--rule); }
+  .toolbar .tap { font-size: 17px; }
+  .filter-btn, .dd > button { padding: 0 12px; height: 44px; }
+  .toolbar .sep { margin: 0 6px; }
+  #active { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 20px 48px 0; }
+  #active .result { height: auto; margin-top: 0; gap: 24px; }
+  #active .result .grow { display: none; }
+  #library .rows { gap: 40px; padding: 0 48px 96px; }
+  #library .section-head { padding-left: 48px; padding-right: 48px; }
+  #library .empty { padding: 64px 48px; }
+
+  /* Filter: a panel beside the shelf */
+  #sheet.side { left: auto; width: 400px; }
+  #sheet.side .sheet-back { display: none; }
+  #sheet.side .sheet { top: 0; transform: none; transition: none; clip-path: none; box-shadow: none; border-left: 1px solid var(--rule); max-width: none; margin: 0; }
+  #sheet.side .grab { display: none; }
+  #sheet.side .sheet-head { padding: 28px 18px 14px 28px; touch-action: auto; }
+  #sheet.side .sheet-head h2 { font-size: 40px; }
+  #sheet.side .sheet-body { padding: 0 28px 24px; }
+  #sheet.side .sheet-foot { padding: 8px 28px 20px; }
+
+  /* Book page: cover left; title, readers and lending right; edition and people below */
+  #book .book-top { height: 72px; padding: 0 40px 0 36px; }
+  .bk-main { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 48px 80px; padding: 48px 48px 64px; border-top: 1px solid var(--rule); }
+  .bk-cover { display: block; flex: 1 1 320px; max-width: 400px; }
+  .bk-cover .plinth { padding: 0; border: 0; }
+  .bk-cover .plinth .line { display: none; }
+  .bk-side { display: block; flex: 999 1 420px; min-width: 0; }
+  .bk-side .fixp { margin: 0 0 32px; }
+  .bk-side .intro { padding: 0; }
+  .bk-side .intro h1 { margin: 14px 0 18px; font-size: 76px; line-height: 1.02; letter-spacing: -.015em; }
+  .bk-side .intro h1.long { font-size: 60px; }
+  .bk-side .intro .by { font-size: 28px; }
+  .bk-side .intro .tr { font-size: 17px; }
+  .bk-side .series { margin-top: 26px; }
+  .bk-side .readers { margin-top: 32px; }
+  .bk-side .readers button { min-height: 84px; padding: 16px 22px; }
+  .bk-side .lend { margin: 24px 0 0; }
+  .bk-blocks { display: flex; flex-wrap: wrap; gap: 48px 80px; padding: 56px 48px 96px; border-top: 1px solid var(--rule); }
+  .bk-blocks .block { flex: 0 1 440px; min-width: 0; padding: 0 !important; }
+  .bk-blocks .block h2 { font-size: 34px; margin-bottom: 14px; }
+}

@@ -4,7 +4,7 @@ A home-library catalogue for two, replacing a bookshelf app. Static site on GitH
 
 ## Current state
 
-- `/` — the app: library grid, book page, person pages, shelves and filters, Add book, the To fix list. `js/data.js` (Firebase, with Firestore's local cache), `js/app.js` (views), `css/app.css` (tokens and type). Anyone can browse; signed-in members also see and change read status and loans.
+- `/` — the app: library grid, book page, person pages, shelves and filters, Add book, the Errata list (things to fix). On screens 1024 px and wider: a side rail, a wider grid, the filter as a side panel and a two-column book page. `js/data.js` (Firebase, with Firestore's local cache), `js/app.js` (views), `css/app.css` (tokens and type). Anyone can browse; signed-in members also see and change read status and loans.
 
 ## Code
 

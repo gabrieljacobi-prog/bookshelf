@@ -39,8 +39,13 @@ const S = {
   f: noFilters(), // the Filter sheet's picks (the shelf is S.cat)
   sheet: false, natMore: false,
   theme: ['light', 'dark'].includes(store.get('theme', '')) ? store.get('theme') : 'system',
-  reviewHidden: store.get('reviewHidden', '') === '1',
 };
+
+// Desktop: a side rail instead of the bottom bar and menu, a wider grid, and the
+// filter as a panel beside the shelf.
+const RAIL_W = 264, PANEL_W = 400;
+const deskMQ = matchMedia('(min-width: 1024px)');
+const desktop = () => deskMQ.matches;
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -53,9 +58,14 @@ const I = {
   filter: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   xBold: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
-  sort: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" style="color:var(--muted)"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/></svg>',
-  search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
-  menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 9h18M9 15h12"/></svg>',
+  sort: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/></svg>',
+  search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>',
+  menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 9h18M9 15h12"/></svg>',
+  errata: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M6 3.5h8.5L18 7v13.5H6zM14.5 3.5V7H18M9 11h6M9 14h6M9 17h3.5"/></svg>',
+  sun: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></svg>',
+  moon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M19.5 14.5A8 8 0 019.5 4.5a8 8 0 1010 10z"/></svg>',
+  signOut: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></svg>',
+  signIn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M14 5h5v14h-5M10 8l4 4-4 4M14 12H4"/></svg>',
   x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   ring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>',
@@ -193,16 +203,27 @@ const otherFilters = () => activeChips().length > 0;
 const anyFilter = () => S.cat !== 'All' || otherFilters();
 function clearFilters() { S.f = noFilters(); }
 
+// Until someone picks light or dark, the theme follows the device.
+const isDark = () => S.theme === 'dark' || (S.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
 function applyTheme() {
   const root = document.documentElement;
   if (S.theme === 'system') delete root.dataset.theme; else root.dataset.theme = S.theme;
-  const dark = S.theme === 'dark' || (S.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const dark = isDark();
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
     m.removeAttribute('media');
     m.content = dark ? '#2E2B29' : '#EAE5DA';
   });
 }
-matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { applyTheme(); renderRail(); if (S.open === 'menu') renderToolbar(); });
+function pickTheme(k) {
+  S.theme = k; store.set('theme', k); applyTheme();
+  renderRail(); renderToolbar();
+}
+// Light and dark as two icons; the one in use is filled.
+const themeToggle = () => {
+  const d = isDark();
+  return `<span class="theme-tg" role="group" aria-label="Theme"><button data-theme-pick="light" aria-pressed="${!d}" aria-label="Light theme">${I.sun}</button><button data-theme-pick="dark" aria-pressed="${d}" aria-label="Dark theme">${I.moon}</button></span>`;
+};
 
 const yr = (b) => b.firstYear ?? b.year ?? null; // when the work came out, else this edition
 function compare(sort) {
@@ -235,8 +256,20 @@ function matches(b, tokens) {
 // --- Library ------------------------------------------------------------------------------
 
 function metrics() {
+  if (desktop()) {
+    // As many columns of about 140 px as fit (6 at 1440 wide, 4 with the filter
+    // panel open), covers at most 232 px tall. The library has 48 px margins, the
+    // narrower pages (a person, a collection) 20 px.
+    const view = document.querySelector('.app > div:not([hidden])');
+    const lib = !view || view.id === 'library';
+    const width = (view?.clientWidth || document.documentElement.clientWidth - RAIL_W) - (lib ? 96 : 40);
+    const gap = 28;
+    const n = Math.max(3, Math.min(8, Math.floor((width + gap) / (140 + gap))));
+    const W = Math.floor((width - gap * (n - 1)) / n);
+    return { n, gap, W, H: Math.min(232, Math.round(W * 1.585)), desk: true };
+  }
   const width = Math.min(document.documentElement.clientWidth, 600);
-  const n = 3, gap = 16; // fixed at three across; a wider layout for desktop comes later
+  const n = 3, gap = 16;
   const W = Math.floor((width - 40 - gap * (n - 1)) / n);
   return { n, gap, W, H: Math.round(W * 1.585) };
 }
@@ -265,9 +298,6 @@ const shelfCount = () => [...S.books.values()].filter((b) => onShelf(b) && (S.ca
 function renderLibrary() {
   const el = $('#library');
   const n = shelfCount();
-  const fixN = toFix().length + (S.loaded && isMember() ? noBinding().length : 0);
-  const oddN = S.loaded && isMember() ? looksOdd().length : 0;
-  const barText = [fixN && `${fixN} book${fixN === 1 ? '' : 's'} to fix`, oddN && `${oddN}${fixN ? '' : ` book${oddN === 1 ? '' : 's'}`} look${oddN === 1 ? 's' : ''} odd`].filter(Boolean).join(' · ');
   const keepX = $('#shelves')?.scrollLeft || 0;
   el.innerHTML = `
     <header class="hero">
@@ -280,19 +310,12 @@ function renderLibrary() {
       </nav>
       <span class="fade l" aria-hidden="true"></span><span class="fade r" aria-hidden="true"></span>
     </div>
-    ${isMember() && barText && !S.reviewHidden ? `
-    <div class="review">
-      <button id="reviewGo"><span class="dot"></span><span class="what">${barText}</span><span class="tap go">To fix</span></button>
-      <button class="x icon-btn" id="hideReview" aria-label="Hide (the menu brings it back)">${I.x}</button>
-    </div>` : ''}
     <div class="sticky grain" id="sticky">
       <div class="compact"><h1 class="disp">${esc(shelfTitle())}</h1><span class="n disp">${n}</span></div>
       <div class="toolbar" id="toolbar"></div>
     </div>
     <div id="active"></div>
     <div class="list" id="list"></div>`;
-  $('#reviewGo')?.addEventListener('click', () => { location.hash = '#/fix'; });
-  $('#hideReview')?.addEventListener('click', () => { S.reviewHidden = true; store.set('reviewHidden', '1'); renderLibrary(); });
   const row = $('#shelves');
   row.scrollLeft = keepX;
   row.addEventListener('scroll', shelfFades, { passive: true });
@@ -331,26 +354,33 @@ function pickShelf(k) {
   for (const c of document.querySelectorAll('#library .hero .count, #library .compact .n')) c.textContent = n;
   for (const b of document.querySelectorAll('#shelves [data-shelf]')) b.setAttribute('aria-current', b.dataset.shelf === k ? 'page' : 'false');
   showShelf();
+  renderRail();
+  if (S.sheet) renderSheet(); // the counts follow the shelf
   renderActive();
   renderList();
+}
+
+// Search waits for a pause in typing; a typed letter that leaves the same books skips the redraw.
+function wireSearch(q) {
+  q.addEventListener('input', () => {
+    clearTimeout(searchT);
+    searchT = setTimeout(() => { S.q = q.value; renderList({ ifChanged: true }); }, 140);
+  });
 }
 
 function renderToolbar() {
   const tb = $('#toolbar');
   if (!tb) return;
-  if (S.searching) {
+  const desk = desktop();
+  if (S.searching && !desk) {
     tb.innerHTML = `
       <div class="search">
-        <span style="padding:0 6px;color:var(--muted)">${I.search}</span>
-        <input id="q" type="search" placeholder="Title, author, series…" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off">
+        <span style="padding:0 6px">${I.search}</span>
+        <input id="q" type="search" placeholder="Title, author or series" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off">
         <button class="icon-btn" id="qx" aria-label="Close search">${I.x}</button>
       </div>`;
     const q = $('#q');
-    // Waits for a pause in typing; a typed letter that leaves the same books skips the redraw.
-    q.addEventListener('input', () => {
-      clearTimeout(searchT);
-      searchT = setTimeout(() => { S.q = q.value; renderList({ ifChanged: true }); }, 140);
-    });
+    wireSearch(q);
     $('#qx').addEventListener('click', () => { clearTimeout(searchT); S.searching = false; S.q = ''; renderToolbar(); renderList(); });
     q.focus();
     return;
@@ -359,31 +389,28 @@ function renderToolbar() {
   const items = (list, cur, key) => list.map(([label]) => `<button role="menuitemradio" aria-checked="${label === cur}" data-${key}="${esc(label)}">${esc(label)}${label === cur ? I.check : ''}</button>`).join('');
   const u = S.user;
   const nf = activeChips().length;
+  // Phone menu: a panel dropping from under the toolbar. The desktop rail has the same things.
+  const menuHtml = `
+    <div class="dd dd-drop">
+      <button class="icon-btn" data-open="menu" aria-haspopup="true" aria-expanded="${S.open === 'menu'}" aria-label="Menu">${I.menu}</button>
+      ${S.open === 'menu' ? `<div class="menu drop grain" role="menu" aria-label="Menu">
+        ${isMember() ? `<button class="tap" role="menuitem" data-go="#/fix">${I.errata}<span>Errata</span></button>` : ''}
+        <div class="theme-row">${themeToggle()}</div>
+        ${u ? `<button class="tap" role="menuitem" data-act="signout">${I.signOut}<span>Sign out</span></button>`
+          : `<button class="tap" role="menuitem" data-act="signin">${I.signIn}<span>Sign in</span></button>`}
+      </div>` : ''}
+    </div>`;
   tb.innerHTML = `
-    <button class="tap filter-btn${nf ? ' on' : ''}" id="openFilter" aria-haspopup="dialog">${I.filter}<span>Filter</span>${nf ? `<span class="badge" aria-label="${nf} on">${nf}</span>` : ''}</button>
+    <button class="tap filter-btn${nf ? ' on' : ''}" id="openFilter" aria-haspopup="dialog" aria-expanded="${S.sheet}">${I.filter}<span>Filter</span>${nf ? `<span class="badge" aria-label="${nf} on">${nf}</span>` : ''}</button>
     <span class="sep" aria-hidden="true"></span>
     <div class="dd">
       <button class="tap" data-open="sort" aria-haspopup="true" aria-expanded="${S.open === 'sort'}" aria-label="Sort by ${esc(S.sort)}">${I.sort}<span>${esc(sortShort)}</span>${I.chev}</button>
       ${S.open === 'sort' ? `<div class="menu" role="menu" aria-label="Sort by">${items(SORTS, S.sort, 'sort')}</div>` : ''}
     </div>
     <span class="grow"></span>
-    <button class="icon-btn" id="openSearch" aria-label="Search">${I.search}</button>
-    <div class="dd">
-      <button class="icon-btn" data-open="menu" aria-haspopup="true" aria-expanded="${S.open === 'menu'}" aria-label="Menu">${I.menu}</button>
-      ${S.open === 'menu' ? `<div class="menu right" role="menu">
-        <div class="mh lbl">Theme</div>
-        ${[['system', 'Same as phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button role="menuitemradio" aria-checked="${S.theme === k}" data-theme-pick="${k}">${l}${S.theme === k ? I.check : ''}</button>`).join('')}
-        <div class="mh lbl">Account</div>
-        ${u ? `<div class="note" style="border-top:0">Signed in as ${esc(u.member ? READERS.find(([k]) => k === u.member)[1] : u.email)}${u.member ? '' : '. This account can only browse.'}</div><button data-act="signout">Sign out</button>`
-          : '<button data-act="signin">Sign in</button>'}
-        ${isMember() ? `
-        <div class="mh lbl">Checking books</div>
-        <button data-go="#/fix">To fix</button>
-        <button data-go="#/names">People &amp; publishers</button>
-        <button data-go="#/authors">Authors</button>
-        ${S.reviewHidden ? '<button data-act="showReview">Show the reminder bar</button>' : ''}` : ''}
-      </div>` : ''}
-    </div>`;
+    ${desk ? `<label class="search-inline">${I.search}<input id="q" type="search" placeholder="Title, author or series" value="${esc(S.q)}" aria-label="Search the library" autocomplete="off"></label>`
+      : `<button class="icon-btn" id="openSearch" aria-label="Search">${I.search}</button>${menuHtml}`}`;
+  if (desk) wireSearch($('#q'));
   // An open menu ends above the bottom bar, so its last items can always be scrolled to.
   const menu = tb.querySelector('.menu');
   if (menu) {
@@ -410,18 +437,22 @@ function renderActive() {
 // A sheet from the bottom with every filter as chips; it changes S.f as you tap and
 // the library redraws when it closes. Back, ×, Show, tapping outside, Escape or a
 // swipe down close it.
+// On a phone the shelf waits until the sheet closes; on desktop the panel sits
+// beside the shelf, which follows every pick.
 function filtersChanged() {
-  if (S.sheet) { renderSheet(); return; }
+  if (S.sheet) { renderSheet(); if (!desktop()) return; }
   renderToolbar(); renderActive(); renderList();
 }
 function openSheet() {
   if (S.sheet) return;
   S.sheet = true;
-  try { history.pushState({ sheet: 1 }, '', location.href); } catch { /* fine without */ }
+  const side = desktop();
+  if (!side) { try { history.pushState({ sheet: 1 }, '', location.href); } catch { /* fine without */ } }
   let el = $('#sheet');
   if (!el) { el = document.createElement('div'); el.id = 'sheet'; document.body.appendChild(el); }
-  document.body.classList.add('sheet-open');
+  document.body.classList.add(side ? 'panel-open' : 'sheet-open');
   renderSheet();
+  if (side) { renderLibrary(); } // narrower shelf: fewer columns, smaller title
   requestAnimationFrame(() => { el.classList.add('in'); $('#sheetClose')?.focus({ preventScroll: true }); });
 }
 function closeSheet(fromPop = false) {
@@ -430,8 +461,9 @@ function closeSheet(fromPop = false) {
   S.sheet = false;
   const el = $('#sheet');
   if (el) { el.classList.remove('in'); setTimeout(() => { if (!S.sheet) el.innerHTML = ''; }, 220); }
-  document.body.classList.remove('sheet-open');
-  filtersChanged();
+  const wasPanel = document.body.classList.contains('panel-open');
+  document.body.classList.remove('sheet-open', 'panel-open');
+  if (wasPanel && !$('#library').hidden) renderLibrary(); else filtersChanged();
   $('#openFilter')?.focus({ preventScroll: true });
 }
 window.addEventListener('popstate', () => { if (S.sheet) closeSheet(true); });
@@ -463,9 +495,11 @@ function renderSheet() {
   const rp = readPick();
   const len = f.len || { lo: 0, hi: LEN_MAX };
   const total = [...S.books.values()].filter((b) => passesFilters(b)).length;
+  const side = desktop();
+  el.classList.toggle('side', side);
   el.innerHTML = `
     <button class="sheet-back" id="sheetBack" aria-label="Close the filter" tabindex="-1"></button>
-    <div class="sheet grain" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet grain" role="dialog" aria-modal="${!side}" aria-labelledby="sheetTitle">
       <div class="sheet-head" id="sheetHead">
         <span class="grab" aria-hidden="true"></span>
         <h2 class="disp" id="sheetTitle">Filter</h2>
@@ -492,7 +526,8 @@ function renderSheet() {
       </div>
       <div class="sheet-foot">
         <button class="tap clear-all" data-fclear="1"${activeChips().length ? '' : ' disabled'}>Clear all</button>
-        <button class="btn-ink ch8 show-btn" id="sheetShow"><span class="tap">Show</span><span class="n disp" id="sheetN">${total}</span><span class="tap">${total === 1 ? 'book' : 'books'}</span></button>
+        ${side ? '<span class="foot-note">The shelf updates as you pick</span>'
+          : `<button class="btn-ink ch8 show-btn" id="sheetShow"><span class="tap">Show</span><span class="n disp" id="sheetN">${total}</span><span class="tap">${total === 1 ? 'book' : 'books'}</span></button>`}
       </div>
     </div>`;
   $('#sheetBody').scrollTop = keep;
@@ -506,14 +541,14 @@ function wireSheet() {
     if (!t) return;
     if (t.id === 'sheetBack' || t.id === 'sheetClose' || t.id === 'sheetShow') { closeSheet(); return; }
     if (t.dataset.natmore) { S.natMore = !S.natMore; renderSheet(); return; }
-    if (t.dataset.fclear) { clearFilters(); renderSheet(); return; }
-    if (t.id === 'lenAny') { S.f.len = null; renderSheet(); return; }
+    if (t.dataset.fclear) { clearFilters(); filtersChanged(); return; }
+    if (t.id === 'lenAny') { S.f.len = null; filtersChanged(); return; }
     const k = t.dataset.fk;
     if (!k) return;
     const f = S.f, v = t.dataset.fv;
     if (v != null) { f[k].has(v) ? f[k].delete(v) : f[k].add(v); } else f[k] = !f[k];
     // Archived swaps the whole shelf; its nationalities and counts change with it.
-    renderSheet();
+    filtersChanged();
   };
   // Length: two thumbs on one track; only the numbers redraw while dragging.
   const lo = $('#lenLo'), hi = $('#lenHi');
@@ -525,8 +560,9 @@ function wireSheet() {
     $('#lenAny').hidden = !S.f.len;
     $('#lenFill').style.cssText = `left:${a / 10}%;width:${(b - a) / 10}%`;
     const n = [...S.books.values()].filter((x) => passesFilters(x)).length;
-    $('#sheetN').textContent = n;
+    if ($('#sheetN')) $('#sheetN').textContent = n;
     $('[data-fclear]').disabled = !activeChips().length;
+    if (desktop()) { clearTimeout(lenT); lenT = setTimeout(() => { renderToolbar(); renderActive(); renderList({ ifChanged: true }); }, 120); }
   };
   lo.oninput = () => onLen('lo');
   hi.oninput = () => onLen('hi');
@@ -548,9 +584,11 @@ function langList() {
 const seg = (label, key, cur, opts) => `<div class="seg-row" role="group" aria-label="${esc(label)}"><span class="lbl">${esc(label)}</span><span class="seg">${opts.map(([k, l]) =>
   `<button role="menuitemradio" aria-checked="${cur === k}" data-seg="${key}:${k}">${l}</button>`).join('')}</span></div>`;
 
-let searchT, lastShown = '';
+let searchT, lenT, lastShown = '';
 // The shelf grid (library, a person's page): rows of covers on a shelf line, captions below.
-const gridStyle = (m) => `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;`;
+const gridStyle = (m) => (m.desk
+  ? `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:14px;--capA:13px;--phA:10px;--phT:15px;--phPad:10px 9px 12px;`
+  : `--cols:${m.n};--gap:${m.gap}px;--H:${m.H}px;--capT:12px;--capA:11px;--phA:9px;--phT:13px;--phPad:9px 8px 10px;`);
 function rowsHtml(books, m, sub = byLine) {
   const rows = [];
   for (let j = 0; j < books.length; j += m.n) rows.push(books.slice(j, j + m.n));
@@ -636,22 +674,28 @@ document.addEventListener('click', async (e) => {
   if (t.tagName === 'A' && t.closest('.menu')) { S.open = null; return; }
   if (t.dataset.open) { S.open = S.open === t.dataset.open ? null : t.dataset.open; renderToolbar(); return; }
   if (t.dataset.shelf) { pickShelf(t.dataset.shelf); return; }
-  if (t.id === 'openFilter') { S.open = null; renderToolbar(); openSheet(); return; }
+  if (t.id === 'openFilter') { S.open = null; if (S.sheet && desktop()) closeSheet(); else { renderToolbar(); openSheet(); } return; }
   if (t.dataset.unf) { removeChip(t.dataset.unf); filtersChanged(); return; }
   if (t.dataset.clear) { clearFilters(); filtersChanged(); return; }
-  if (t.dataset.themePick) { S.theme = t.dataset.themePick; store.set('theme', S.theme); applyTheme(); renderToolbar(); return; }
+  if (t.dataset.themePick) { pickTheme(t.dataset.themePick); return; }
   if (t.dataset.sort) { S.sort = t.dataset.sort; S.open = null; renderToolbar(); renderList(); return; }
   if (t.id === 'openSearch') { S.searching = true; S.open = null; renderToolbar(); return; }
   if (t.dataset.act === 'signin') { S.open = null; renderToolbar(); signIn().catch((err) => toast(err.message)); return; }
   if (t.dataset.act === 'signout') { S.open = null; signOutUser(); return; }
   if (t.dataset.go) { S.open = null; location.hash = t.dataset.go; return; }
-  if (t.dataset.act === 'showReview') { S.open = null; S.reviewHidden = false; store.set('reviewHidden', ''); renderLibrary(); return; }
   if (S.open && !t.closest('.menu')) { S.open = null; renderToolbar(); }
 });
 
 // Only a change of width changes the grid. On a phone the browser's address bar
 // sliding away while scrolling also counts as a resize (height only); redrawing
 // the grid then made every cover blank and fade back in.
+// Crossing into or out of the desktop layout: the filter and menus close, and
+// everything is drawn again for the other layout.
+deskMQ.addEventListener?.('change', () => {
+  if (S.sheet) closeSheet(true);
+  S.open = null;
+  rerender();
+});
 let resizeT, gridWidth = document.documentElement.clientWidth;
 window.addEventListener('resize', () => {
   clearTimeout(resizeT);
@@ -685,10 +729,11 @@ function renderBook(id) {
   const byHtml = main.length ? nameLinks(main).join(', ') : esc(byLine(b));
   const translators = nameLinks(people.filter((x) => x.role === 'translator'));
 
-  // Cover on its plinth: fit a 220 × 300 box, never cropped.
+  // Cover on its plinth: fit a 220 × 300 box (300 × 460 on desktop), never cropped.
+  const [boxW, boxH] = desktop() ? [300, 460] : [220, 300];
   const r = b.cover?.w ? b.cover.w / b.cover.h : 0.66;
-  let cw = 220, chh = Math.round(220 / r);
-  if (chh > 300) { chh = 300; cw = Math.round(300 * r); }
+  let cw = boxW, chh = Math.round(boxW / r);
+  if (chh > boxH) { chh = boxH; cw = Math.round(boxH * r); }
   const coverHtml = !b.cover
     ? `<span class="cover ph" style="width:${cw}px;height:${chh}px" role="img" aria-label="No cover yet for ${esc(b.title)}"><span class="pa">${esc(byLine(b))}</span><span class="pt">${esc(b.title)}</span></span>`
     : `<span class="cover loading" style="width:${cw}px;height:${chh}px"${b.cover.url ? ` data-url="${esc(b.cover.url)}"` : ` data-cid="${esc(b.id)}"`}><img alt="Cover of ${esc(b.title)}"></span>`;
@@ -777,11 +822,13 @@ function renderBook(id) {
 
   el.innerHTML = `
     <div class="book-top">${backLink()}${member ? `<a class="icon-btn" href="#/book/${esc(id)}/edit" aria-label="Edit book"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></a>` : ''}</div>
-    <section class="plinth">
+    <div class="bk-main">
+    <div class="bk-cover"><section class="plinth">
       ${coverHtml}
       <div class="line" aria-hidden="true"></div>
       <div class="check lbl">${b.verified ? `${I.check}Edition checked` : b.needsFix ? '<span class="dot"></span>Marked as the wrong edition' : '<span class="dot"></span>Edition not checked yet'}</div>
-    </section>
+    </section></div>
+    <div class="bk-side">
     ${fixPanelHtml(b)}
     <section class="intro">
       ${b.category || b.hallOfFame ? `<div class="lbl">${esc(b.category || '')}${b.hallOfFame ? `<span class="hof">${b.category ? ' · ' : ''}Hall of Fame</span>` : ''}${member && b.archived ? ' · Archived' : member && p.toGo ? ' · To pass on' : ''}</div>` : ''}
@@ -796,11 +843,15 @@ function renderBook(id) {
     ${member ? `<div class="lend"><button class="btn-line ch8 hof-btn" id="hof" aria-pressed="${!!b.hallOfFame}" style="width:100%;height:56px"><span class="ch8i tap">${I.star}${b.hallOfFame ? 'In the Hall of Fame' : 'Add to the Hall of Fame'}</span></button></div>` : ''}
     ${lending}
     ${leaving}
+    </div>
+    </div>
+    <div class="bk-blocks">
     <section class="block">
       <h2 class="disp">The edition</h2>
       <dl>${edition.map(([k, v]) => `<div><dt class="lbl">${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
     </section>
-    ${people.length ? `<section class="block" style="padding-bottom:40px"><h2 class="disp">The people</h2><div class="people">${peopleHtml}</div></section>` : ''}`;
+    ${people.length ? `<section class="block" style="padding-bottom:40px"><h2 class="disp">The people</h2><div class="people">${peopleHtml}</div></section>` : ''}
+    </div>`;
 
   // Large cover: show the grid thumb at once, swap in the big one when it arrives.
   const c = el.querySelector('.cover[data-cid]');
@@ -1266,7 +1317,7 @@ function lkResult(id) {
 
 function renderLookup() {
   const el = $('#authors');
-  const back = `<div class="page-top"><a class="back tap" href="#/fix">${I.back}To fix</a></div>`;
+  const back = `<div class="page-top"><a class="back tap" href="#/fix">${I.back}Errata</a></div>`;
   if (!isMember()) { el.innerHTML = back + '<p class="empty">Sign in from the library menu to look up authors.</p>'; return; }
   if (!S.loaded) { el.innerHTML = back + '<p class="empty">Opening…</p>'; return; }
   const on = peopleOnShelves();
@@ -1417,7 +1468,7 @@ function mergeCount() {
   return n;
 }
 
-// --- To fix ----------------------------------------------------------------------------------
+// --- Errata (to fix) ----------------------------------------------------------------------------------
 
 // A name or title quoted on a button keeps its own case (button text is lowercase small caps).
 const q = (s) => `<span class="v">“${esc(s)}”</span>`;
@@ -1477,7 +1528,7 @@ function renderFixList() {
   const nothing = !all.length && !odd.length && !unbound.length;
   el.innerHTML = `
     <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
-    <header class="page-head"><h1 class="disp">To fix</h1>
+    <header class="page-head"><h1 class="disp">Errata</h1>
       <p>${nothing ? 'Nothing to fix.' : 'Open a book to find the right edition, pick another cover, or take a photo of yours.'}</p></header>
     ${unbound.length ? `<div class="section-head" style="padding-top:12px"><span class="name">Paperback or hardcover</span><span class="of">${unbound.length}</span></div>
       <p class="sec-hint">Set to paperback. Change the hardcovers, then save them all.</p>
@@ -1542,7 +1593,7 @@ const mergeState = new Map(); // group key → { pick, typed, out: Set, busy }
 
 function renderNames() {
   const el = $('#names');
-  const back = `<div class="page-top"><a class="back tap" href="#/fix">${I.back}To fix</a></div>`;
+  const back = `<div class="page-top"><a class="back tap" href="#/fix">${I.back}Errata</a></div>`;
   if (!isMember()) { el.innerHTML = back + '<p class="empty">Sign in from the library menu to merge names.</p>'; return; }
   if (!S.loaded) { el.innerHTML = back + '<p class="empty">Opening…</p>'; return; }
   const books = [...S.books.values()];
@@ -2557,6 +2608,55 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && stopScan) { endScan(); if (viewOf(location.hash) === 'add') renderAdd(); }
 });
 
+// --- Desktop side rail --------------------------------------------------------------------
+// Shelves, the three main places, Errata and the theme, and signing in or out at
+// the foot. Hidden on phones, where the shelf row, bottom bar and menu do this.
+
+function renderRail() {
+  const el = $('#rail');
+  if (!el) return;
+  const v = viewOf(location.hash);
+  const onLib = v === 'library';
+  const here = (on) => (on ? ' aria-current="page"' : '');
+  const count = (k) => (S.loaded ? [...S.books.values()].filter((b) => onShelf(b) && (k === 'All' || b.category === k)).length : '');
+  el.innerHTML = `
+    <a class="rail-mark disp" href="#/">Bookshelf</a>
+    <nav class="rail-sec rail-shelves" aria-label="Shelves">
+      ${['All', ...CATS].map((k) => `<button class="disp" data-rshelf="${esc(k)}" aria-current="${onLib && S.cat === k ? 'page' : 'false'}"><span>${esc(k)}</span><span class="n">${count(k)}</span></button>`).join('')}
+    </nav>
+    <nav class="rail-sec" aria-label="Main">
+      <a class="tap rl" href="#/"${here(['library', 'book', 'edit', 'author', 'collection'].includes(v))}>${I.navLib}Library</a>
+      <a class="tap rl" href="#/add"${here(v === 'add' || v === 'adddetails')}>${I.navAdd}Add book</a>
+      <button class="tap rl" data-act="next">${I.navNext}Next read</button>
+    </nav>
+    <div class="rail-sec">
+      ${isMember() ? `<a class="tap rl" href="#/fix"${here(['fix', 'names', 'authors'].includes(v))}>${I.errata}Errata</a>` : ''}
+      <div class="rail-theme">${themeToggle()}</div>
+    </div>
+    <div class="rail-grow"></div>
+    <div class="rail-sec rail-foot">
+      ${S.user ? `<button class="tap rl" data-act="signout">${I.signOut}Sign out</button>` : `<button class="tap rl" data-act="signin">${I.signIn}Sign in</button>`}
+    </div>`;
+}
+
+function wireRail() {
+  $('#rail')?.addEventListener('click', (e) => {
+    const t = e.target.closest('button, a');
+    if (!t) return;
+    if (t.dataset.rshelf) {
+      const k = t.dataset.rshelf;
+      if (viewOf(location.hash) === 'library') { pickShelf(k); window.scrollTo({ top: 0 }); }
+      else { S.cat = k; libScroll = 0; location.hash = '#/'; }
+      return;
+    }
+    if (t.dataset.themePick) { pickTheme(t.dataset.themePick); return; }
+    if (t.dataset.act === 'next') { soon('Next read'); return; }
+    if (t.dataset.act === 'signin') { signIn().catch((err) => toast(err.message)); return; }
+    if (t.dataset.act === 'signout') { signOutUser(); return; }
+    if (t.getAttribute('href') === '#/' && (location.hash === '' || location.hash === '#/')) { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  });
+}
+
 // --- Routing --------------------------------------------------------------------------------
 
 const VIEWS = ['library', 'book', 'author', 'collection', 'authors', 'fix', 'add', 'names'];
@@ -2570,12 +2670,12 @@ const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.tes
 let libScroll = 0, fixScroll = 0;
 // Book and person pages lead to each other. The back link returns one step:
 // to the page this one was opened from, and from the first one to where the
-// trail started (Library, To fix, Add book, Authors).
+// trail started (Library, Errata, Add book, Authors).
 let trail = ['#/'];
 let lastView = 'library';
 const START = { fix: '#/fix', add: '#/add', adddetails: '#/add', authors: '#/authors', names: '#/names' };
 function followTrail(h, v, prev) {
-  if (v === 'edit') { if (prev === 'fix') trail = ['#/fix']; return; } // after saving, back leads to To fix
+  if (v === 'edit') { if (prev === 'fix') trail = ['#/fix']; return; } // after saving, back leads to Errata
   if (v !== 'book' && v !== 'author' && v !== 'collection') return;
   if (h === trail.at(-1)) return;
   if (trail.length > 1 && h === trail.at(-2)) { trail.pop(); return; } // went back
@@ -2585,7 +2685,7 @@ function followTrail(h, v, prev) {
 function backLink() {
   const h = trail.length > 1 ? trail.at(-2) : '#/';
   const short = (t) => (t.length > 26 ? t.slice(0, 24).trimEnd() + '…' : t);
-  const label = h === '#/' ? 'Library' : h === '#/fix' ? 'To fix' : h === '#/add' ? 'Add another' : h === '#/authors' ? 'Authors'
+  const label = h === '#/' ? 'Library' : h === '#/fix' ? 'Errata' : h === '#/add' ? 'Add another' : h === '#/authors' ? 'Authors'
     : h === '#/names' ? 'People & publishers'
     : h.startsWith('#/book/') ? short(S.books.get(decodeURIComponent(h.slice(7)))?.title || 'Book')
     : h.startsWith('#/author/') ? short(S.authors.get(decodeURIComponent(h.slice(9)))?.name || 'Person')
@@ -2599,6 +2699,8 @@ function route() {
   followTrail(h, v, lastView);
   const prevView = lastView;
   lastView = v;
+  if (S.sheet && v !== 'library') closeSheet(true);
+  renderRail();
   if (v !== 'add') endScan();
   const adding = v === 'add' || v === 'adddetails';
   $('#navLib')?.setAttribute('aria-current', adding ? 'false' : 'page');
@@ -2648,6 +2750,7 @@ function start() {
     <a href="#/add" class="tap" id="navAdd">${I.navAdd}Add book</a>
     <button class="tap" id="navNext">${I.navNext}Next read</button>`;
   $('#navNext').addEventListener('click', () => soon('Next read'));
+  wireRail();
   $('#navLib').addEventListener('click', (e) => {
     if (location.hash === '' || location.hash === '#/') { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   });
@@ -2713,6 +2816,7 @@ function liveRerender() {
 
 function rerender() {
   oddChanged();
+  renderRail();
   const v = viewOf(location.hash);
   const y = window.scrollY;
   if (v === 'edit') { if (!$('#editForm')) renderEdit(decodeURIComponent(location.hash.slice(7, -5))); }
