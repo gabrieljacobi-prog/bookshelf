@@ -237,6 +237,17 @@ body.sheet-open { overflow: hidden; }
 .intro .subtitle { margin: -6px 0 12px; font-size: 18px; color: var(--muted); }
 .series { display: flex; align-items: center; gap: 12px; min-height: 52px; margin-top: 18px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); text-decoration: none; }
 .series .s { flex: 1; min-width: 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.series { min-height: 56px; }
+.series + .series { margin-top: 0; border-top: 0; }
+.series .kind { flex: none; width: 84px; display: flex; flex-direction: column; gap: 2px; }
+.series .kind .lbl { font-size: 12px; }
+.series .kind .n { font-size: 13px; color: var(--ink); }
+.series .s { white-space: normal; line-height: 1.25; }
+/* Collection page: a row of spines where a person has the arch */
+.chead .spines { display: flex; align-items: flex-end; gap: 4px; height: 64px; margin-bottom: 26px; }
+.chead .spines span { display: block; width: 14px; border: 1px solid var(--rule); background: var(--surface); }
+.chead .spines i { flex: 1; height: 0; border-top: 1px solid var(--rule); }
+.chead .quiet { display: inline-flex; align-items: center; height: 44px; margin: 10px 0 0 -2px; padding: 0 2px; background: none; border: 0; color: var(--muted); font: 500 15px var(--label); letter-spacing: .05em; text-transform: lowercase; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px; }
 .readers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .readers button { text-align: left; min-height: 76px; padding: 14px 20px; background: none; border: 0; }
 .readers button + button { border-left: 1px solid var(--rule); }

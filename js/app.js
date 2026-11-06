@@ -226,7 +226,7 @@ function matches(b, tokens) {
   if (!tokens.length) return true;
   let hay = hayOf.get(b);
   if (hay === undefined) {
-    hay = norm([b.title, b.subtitle, b.seriesName, b.publisher, b.isbn, ...(b.people || []).map((p) => p.name)].join(' '));
+    hay = norm([b.title, b.subtitle, b.seriesName, b.collection, b.publisher, b.isbn, ...(b.people || []).map((p) => p.name)].join(' '));
     hayOf.set(b, hay);
   }
   return tokens.every((t) => hay.includes(t));
@@ -700,11 +700,17 @@ function renderBook(id) {
     ['Language', LANGS[b.language] || b.language], ['Format', format], ['Pages', b.pages], ['ISBN', b.isbn],
   ].filter(([, v]) => v);
 
-  const seriesRow = b.seriesName ? `
-    <a class="series" href="#/?q=${encodeURIComponent(b.seriesName)}">
-      ${b.volume ? `<span class="lbl">Volume ${esc(b.volume)}</span>` : ''}
-      <span class="s">${esc(b.seriesName)}</span>${I.right}
-    </a>` : '';
+  // Series (a story told across books) and collection (a publisher's line or a
+  // magazine), each a row that opens what else is in it.
+  const groupRow = (href, kind, num, name) => `
+    <a class="series" href="${href}">
+      <span class="kind"><span class="lbl">${kind}</span>${num ? `<span class="lbl n">${esc(num)}</span>` : ''}</span>
+      <span class="s">${esc(name)}</span>${I.right}
+    </a>`;
+  const seriesRow = [
+    b.seriesName ? groupRow(`#/?q=${encodeURIComponent(b.seriesName)}`, 'Series', b.volume ? 'Volume ' + b.volume : '', b.seriesName) : '',
+    b.collection ? groupRow(`#/collection/${esc(slug(b.collection))}`, 'Collection', b.collectionNo ? 'No. ' + b.collectionNo : '', b.collection) : '',
+  ].join('');
 
   const readers = member ? `
     <div class="readers">${READERS.map(([k, name]) => {
@@ -974,6 +980,78 @@ async function saveAuthor(id, fields, msg) {
     for (const [b] of bookUps) S.books.set(b.id, b);
     toast('Couldn\'t save: ' + e.message);
   }
+}
+
+// --- Collections: a publisher's line or a magazine, one per book (`collection`
+// + optional `collectionNo` on the book). Found by the slug of the name.
+function collectionsOnShelves() {
+  const map = new Map();
+  for (const b of S.books.values()) {
+    if (!b.collection || (b.archived && !isMember())) continue;
+    const k = slug(b.collection);
+    if (!map.has(k)) map.set(k, { name: b.collection, books: [] });
+    map.get(k).books.push(b);
+  }
+  return map;
+}
+const byCollNo = (a, b) => (a.collectionNo == null) - (b.collectionNo == null) || volNum(a.collectionNo) - volNum(b.collectionNo) || titleKey(a).localeCompare(titleKey(b));
+let collUI = {}, collShown = '';
+
+function renderCollection(key) {
+  const el = $('#collection');
+  const c = collectionsOnShelves().get(key);
+  const top = `<div class="book-top">${backLink()}</div>`;
+  if (!c) {
+    el.innerHTML = `${top}<p class="empty">${S.loaded ? 'No books in this collection now.' : 'Opening…'}</p>`;
+    return;
+  }
+  const member = isMember();
+  const shelved = c.books.filter((b) => !b.archived).sort(byCollNo);
+  const nums = shelved.map((b) => b.collectionNo).filter((n) => n != null && n !== '');
+  const count = `${shelved.length} ${shelved.length === 1 ? 'book' : 'books'}`;
+  const meta = !nums.length ? `${count} · no numbers yet`
+    : nums.length === 1 ? `${count} · number ${nums[0]}`
+    : `${count} · numbers ${nums[0]} to ${nums.at(-1)}`;
+  const spines = shelved.slice(0, 12).map((b, i) => `<span style="height:${40 + ((i * 17) % 22)}px"></span>`).join('');
+  const m = metrics();
+  const rename = !member ? '' : collUI.mode === 'rename'
+    ? `<form class="block aform" id="collForm" style="margin-top:18px">
+        <div class="fr"><label class="lbl" for="cf-name">Name</label><input id="cf-name" name="name" value="${esc(c.name)}" autocomplete="off"></div>
+        <p class="sec-hint" style="padding:6px 0 0">The new name is used on all ${c.books.length} books.</p>
+        <div class="acts"><button type="button" class="cancel tap" id="cancelColl">Cancel</button><button type="submit" class="btn-ink tap ch8" style="padding:0 26px"${collUI.busy ? ' disabled' : ''}>Save</button></div>
+      </form>`
+    : '<button class="quiet tap" id="renameColl">Rename collection</button>';
+  el.innerHTML = `
+    ${top}
+    <header class="ahead chead">
+      <div class="spines" aria-hidden="true">${spines}<i></i></div>
+      <div class="lbl">Collection</div>
+      <h1 class="disp${c.name.length > 20 ? ' long' : ''}">${esc(c.name)}</h1>
+      <p class="meta">${esc(meta)}</p>
+      ${rename}
+    </header>
+    <div class="agrid" style="${gridStyle(m)}">
+      <section class="section">${rowsHtml(shelved, m, (b) => (b.collectionNo ? 'No. ' + b.collectionNo : 'No number'))}</section>
+    </div>
+    <div style="height:40px"></div>`;
+  observeCovers(el);
+
+  const again = () => { const y = window.scrollY; renderCollection(key); window.scrollTo(0, y); };
+  $('#renameColl', el)?.addEventListener('click', () => { collUI = { mode: 'rename' }; again(); $('#cf-name')?.focus(); });
+  $('#cancelColl', el)?.addEventListener('click', () => { collUI = {}; again(); });
+  $('#collForm', el)?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = $('#cf-name').value.replace(/\s+/g, ' ').trim();
+    if (!name || name === c.name) { collUI = {}; again(); return; }
+    collUI.busy = true;
+    try {
+      await updateBooks(c.books.map((b) => [b.id, { collection: name }]));
+      collUI = {};
+      toast(`Renamed on ${c.books.length} ${c.books.length === 1 ? 'book' : 'books'}.`);
+      location.replace('#/collection/' + slug(name));
+      trail[trail.length - 1] = '#/collection/' + slug(name);
+    } catch (err) { collUI.busy = false; toast('Couldn’t save: ' + err.message); }
+  });
 }
 
 function renderAuthor(id) {
@@ -1716,6 +1794,7 @@ function renderEdit(id) {
   const langKnown = !b.language || EDIT_LANGS.some(([k]) => k === b.language);
   const publishers = [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))].sort();
   const seriesNames = [...S.series.values()].map((x) => x.name).sort();
+  const collNames = [...collectionsOnShelves().values()].map((c) => c.name).sort();
   const names = [...S.authors.values()].map((x) => x.name).sort();
   const field = (label, name, value, extra = '') => `
     <div class="fr"><label class="lbl" for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value ?? '')}" autocomplete="off" ${extra}></div>`;
@@ -1732,6 +1811,8 @@ function renderEdit(id) {
         <div class="fr"><label class="lbl" for="f-category">Category</label><select id="f-category" name="category">${isNew ? opt('', 'Choose…', b.category || '') : ''}${CATS.map((c) => opt(c, c, b.category)).join('')}</select></div>
         ${field('Series', 'seriesName', b.seriesName, 'list="dl-series"')}
         ${field('Volume', 'volume', b.volume, 'inputmode="decimal" style="max-width:120px"')}
+        ${field('Collection', 'collection', b.collection, 'list="dl-coll" placeholder="A publisher\'s line or a magazine"')}
+        ${field('No.', 'collectionNo', b.collectionNo, 'inputmode="decimal" style="max-width:120px"')}
         <div class="fr"><label class="lbl" for="f-firstYear">First published</label>
           <div class="fy"><input id="f-firstYear" name="firstYear" value="${esc(b.firstYear ?? '')}" autocomplete="off" inputmode="numeric" maxlength="4" style="max-width:120px">
           <button type="button" class="tap" id="fyLook">Look up</button><span class="hint" id="fyNote" style="margin:0"></span></div></div>
@@ -1769,6 +1850,7 @@ function renderEdit(id) {
       </div>
       <datalist id="dl-pub">${publishers.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
       <datalist id="dl-series">${seriesNames.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <datalist id="dl-coll">${collNames.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
       <datalist id="dl-names">${names.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
     </form>`;
 
@@ -2026,9 +2108,14 @@ async function saveEdit(id) {
     if (!existing) newSeries = { id: seriesId, name: seriesName };
   }
 
+  // Collection: an existing one keeps its spelling.
+  const collTyped = (fd.collection || '').trim() || null;
+  const collName = collTyped ? (collectionsOnShelves().get(slug(collTyped))?.name || collTyped) : null;
+
   let fields = {
     title, subtitle: fd.subtitle.trim() || null, category: fd.category,
     seriesId, seriesName: existingSeriesName(seriesId) || seriesName, volume: seriesName ? (fd.volume.trim() || null) : null,
+    collection: collName, collectionNo: collName ? (fd.collectionNo.trim() || null) : null,
     publisher: fd.publisher.trim() || null, year, firstYear, language: fd.language || null,
     format: fd.format === 'ebook' ? 'ebook' : 'physical', binding: ['paperback', 'hardcover'].includes(fd.format) ? fd.format : null,
     pages: Number(fd.pages) || null, isbn, editionNote: fd.editionNote.trim() || null, signed: $('#f-signed').checked,
@@ -2432,12 +2519,12 @@ document.addEventListener('visibilitychange', () => {
 
 // --- Routing --------------------------------------------------------------------------------
 
-const VIEWS = ['library', 'book', 'author', 'authors', 'fix', 'add', 'names'];
+const VIEWS = ['library', 'book', 'author', 'collection', 'authors', 'fix', 'add', 'names'];
 function show(v) {
   for (const x of VIEWS) $('#' + x).hidden = x !== v;
 }
 const viewOf = (h) => (/^#\/book\/.+\/edit$/.test(h) ? 'edit' : /^#\/book\//.test(h) ? 'book' : h.startsWith('#/fix') ? 'fix' : h.startsWith('#/names') ? 'names'
-  : h.startsWith('#/authors') ? 'authors' : h.startsWith('#/author/') ? 'author'
+  : h.startsWith('#/authors') ? 'authors' : h.startsWith('#/author/') ? 'author' : h.startsWith('#/collection/') ? 'collection'
   : h.startsWith('#/add/details') ? 'adddetails' : h.startsWith('#/add') ? 'add' : 'library');
 
 let libScroll = 0, fixScroll = 0;
@@ -2449,10 +2536,10 @@ let lastView = 'library';
 const START = { fix: '#/fix', add: '#/add', adddetails: '#/add', authors: '#/authors', names: '#/names' };
 function followTrail(h, v, prev) {
   if (v === 'edit') { if (prev === 'fix') trail = ['#/fix']; return; } // after saving, back leads to To fix
-  if (v !== 'book' && v !== 'author') return;
+  if (v !== 'book' && v !== 'author' && v !== 'collection') return;
   if (h === trail.at(-1)) return;
   if (trail.length > 1 && h === trail.at(-2)) { trail.pop(); return; } // went back
-  if (prev === 'book' || prev === 'author' || prev === 'edit') { trail.push(h); if (trail.length > 40) trail.splice(1, 1); return; }
+  if (prev === 'book' || prev === 'author' || prev === 'collection' || prev === 'edit') { trail.push(h); if (trail.length > 40) trail.splice(1, 1); return; }
   trail = [START[prev] || '#/', h];
 }
 function backLink() {
@@ -2461,7 +2548,8 @@ function backLink() {
   const label = h === '#/' ? 'Library' : h === '#/fix' ? 'To fix' : h === '#/add' ? 'Add another' : h === '#/authors' ? 'Authors'
     : h === '#/names' ? 'People & publishers'
     : h.startsWith('#/book/') ? short(S.books.get(decodeURIComponent(h.slice(7)))?.title || 'Book')
-    : h.startsWith('#/author/') ? short(S.authors.get(decodeURIComponent(h.slice(9)))?.name || 'Person') : 'Back';
+    : h.startsWith('#/author/') ? short(S.authors.get(decodeURIComponent(h.slice(9)))?.name || 'Person')
+    : h.startsWith('#/collection/') ? short(collectionsOnShelves().get(decodeURIComponent(h.slice(13)))?.name || 'Collection') : 'Back';
   return `<a class="back tap" href="${esc(h)}" id="back">${I.back}<span class="bl">${esc(label)}</span></a>`;
 }
 function route() {
@@ -2496,6 +2584,12 @@ function route() {
     renderAuthor(decodeURIComponent(h.slice(9))); window.scrollTo(0, 0); return;
   }
   if (v === 'authors') { show('authors'); renderLookup(); window.scrollTo(0, 0); return; }
+  if (v === 'collection') {
+    show('collection');
+    if (collShown !== h) collUI = {};
+    collShown = h;
+    renderCollection(decodeURIComponent(h.slice(13))); window.scrollTo(0, 0); return;
+  }
   // "#/?q=…" opens the library searching (used by the series row).
   const q = h.match(/[?&]q=([^&]*)/);
   if (q) { S.q = decodeURIComponent(q[1]); S.searching = true; S.cat = 'All'; libScroll = 0; }
@@ -2570,19 +2664,55 @@ function tidyNationalities() {
 // - Chinaman and An Instance of the Fingerpost are Vintage (from Gabriel).
 // - Foraged & Grown has no illustrator; Otto Penzler came from a lookup.
 // - Lake of the Long Sun is The Solar Cycle 7, not 6.
+// - Publisher lines and magazines move from series to collection; The Deluxe
+//   Edition becomes the series The Sandman, with Overture in it unnumbered.
 const PENGUIN_6NOV = ['Penguin', 'Penguin UK', 'Penguin Books Ltd', 'Penguin Books, Limited'];
 const VINTAGE_6NOV = ['bs19803145', 'bs318345'];
+// Collections (6 Nov): publisher lines and magazines leave the series list.
+const TO_COLLECTION_6NOV = ['Penguin Little Black Classics', 'Penguin African Writers Series', 'Metal Hurlant', 'Ex.Mag'];
+const METAL_6NOV = { 'Old Dreams, Young Visions': '1', 'Space Stares Back': '2', 'The Monster Within': '3', 'Paradise Lost': '4' };
+const GREAT_IDEAS_6NOV = ['bs60197', 'bs65663']; // Urne Burial, Myth of Sisyphus
+const PENGUIN_MODERN_6NOV = ['bs147597', 'bs260202', 'bs68154']; // Dark Days, Star, Create Dangerously
 function tidyBooks6Nov() {
-  const ups = [];
+  const up = new Map(); // book id → fields
+  const set = (b, f) => up.set(b.id, { ...(up.get(b.id) || {}), ...f });
+  const goneSeries = new Set();
+  let sandman = false;
   for (const b of S.books.values()) {
-    if (PENGUIN_6NOV.includes(b.publisher)) ups.push([b.id, { publisher: 'Penguin Books' }]);
-    else if (VINTAGE_6NOV.includes(b.id) && b.publisher === 'Penguin Random House') ups.push([b.id, { publisher: 'Vintage' }]);
+    if (PENGUIN_6NOV.includes(b.publisher)) set(b, { publisher: 'Penguin Books' });
+    else if (VINTAGE_6NOV.includes(b.id) && b.publisher === 'Penguin Random House') set(b, { publisher: 'Vintage' });
+    if (b.title === 'Lake of the Long Sun' && String(b.volume) === '6') set(b, { volume: '7' });
     const people = b.people || [];
     if (/^Foraged/.test(b.title || '') && people.some((p) => p.name === 'Otto Penzler')) {
-      ups.push([b.id, { people: people.filter((p) => p.name !== 'Otto Penzler') }]);
+      set(b, { people: people.filter((p) => p.name !== 'Otto Penzler') });
+    }
+    if (b.collection) continue;
+    if (TO_COLLECTION_6NOV.includes(b.seriesName)) {
+      const no = b.seriesName === 'Metal Hurlant' ? (METAL_6NOV[b.subtitle] || null) : (b.volume != null ? String(b.volume) : null);
+      if (b.seriesId) goneSeries.add(b.seriesId);
+      set(b, { collection: b.seriesName, collectionNo: no, seriesId: null, seriesName: null, volume: null });
+    } else if (b.title === 'A Terrible Beauty Is Born') {
+      set(b, { collection: 'Penguin Little Black Classics', collectionNo: '98', ...(/little black/i.test(b.subtitle || '') ? { subtitle: null } : {}) });
+    } else if (PENGUIN_MODERN_6NOV.includes(b.id) || /^\(?penguin modern\)?$/i.test(b.subtitle || '')) {
+      set(b, { collection: 'Penguin Modern', collectionNo: null, ...(/penguin modern/i.test(b.subtitle || '') ? { subtitle: null } : {}) });
+    } else if (GREAT_IDEAS_6NOV.includes(b.id)) {
+      set(b, { collection: 'Great Ideas', collectionNo: null, ...(/^Great Ideas /.test(b.title) ? { title: b.title.slice(12) } : {}) });
+    }
+    if (/penguin classics deluxe edition/i.test(b.subtitle || '')) set(b, { subtitle: null });
+    if (b.seriesName === 'The Deluxe Edition' && /sandman/i.test(b.title || '')) {
+      if (b.seriesId) goneSeries.add(b.seriesId);
+      set(b, { seriesId: 'the-sandman', seriesName: 'The Sandman' });
+      sandman = true;
+    } else if (!b.seriesName && /^The Sandman: Overture/i.test(b.title || '')) {
+      set(b, { seriesId: 'the-sandman', seriesName: 'The Sandman', volume: null });
+      sandman = true;
     }
   }
-  if (ups.length) updateBooks(ups).catch(() => { tidyDone = false; });
+  const ops = [...up].map(([id, data]) => ({ op: 'update', col: 'books', id, data }));
+  if (sandman && !S.series.has('the-sandman')) ops.push({ op: 'set', col: 'series', id: 'the-sandman', data: { name: 'The Sandman' } });
+  goneSeries.delete('the-sandman');
+  for (const id of goneSeries) if (S.series.has(id)) ops.push({ op: 'delete', col: 'series', id });
+  if (ops.length) applyOps(ops).catch(() => { tidyDone = false; });
 }
 
 // A change from the other phone. Wait while something is being typed (a lend
@@ -2612,6 +2742,7 @@ function rerender() {
   else if (v === 'fix') renderFixList();
   else if (v === 'names') renderNames();
   else if (v === 'author') renderAuthor(decodeURIComponent(location.hash.slice(9)));
+  else if (v === 'collection') renderCollection(decodeURIComponent(location.hash.slice(13)));
   else if (v === 'authors') renderLookup();
   else renderLibrary();
   window.scrollTo(0, y);
