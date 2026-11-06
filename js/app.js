@@ -953,6 +953,7 @@ async function saveAuthor(id, fields, msg) {
   const renamed = fields.name && fields.name !== a.name;
   const resorted = fields.sortName && fields.sortName !== a.sortName;
   for (const b of S.books.values()) {
+    if (b.title === 'Lake of the Long Sun' && String(b.volume) === '6') ups.push([b.id, { volume: '7' }]);
     const people = b.people || [];
     if (!people.some((p) => p.authorId === id)) continue;
     const change = {};
@@ -2568,6 +2569,7 @@ function tidyNationalities() {
 //   das Letras are real imprints and stay.
 // - Chinaman and An Instance of the Fingerpost are Vintage (from Gabriel).
 // - Foraged & Grown has no illustrator; Otto Penzler came from a lookup.
+// - Lake of the Long Sun is The Solar Cycle 7, not 6.
 const PENGUIN_6NOV = ['Penguin', 'Penguin UK', 'Penguin Books Ltd', 'Penguin Books, Limited'];
 const VINTAGE_6NOV = ['bs19803145', 'bs318345'];
 function tidyBooks6Nov() {
