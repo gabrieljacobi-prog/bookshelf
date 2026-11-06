@@ -543,3 +543,9 @@ a.person { text-decoration: none; color: inherit; }
 .why .bad { color: var(--muted); }
 .cand.best { border-color: var(--ink); }
 .lk-guess { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+/* Suggestions under a field (series, collection) */
+.sugg { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+.sugg li { border-bottom: 1px solid var(--rule); }
+.sugg button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 0 2px; background: none; border: 0; color: inherit; text-align: left; font: inherit; font-size: 17px; text-transform: none; letter-spacing: normal; cursor: pointer; }
+.sugg .new { display: flex; align-items: center; min-height: 48px; padding: 0 2px; color: var(--muted); font-style: italic; font-size: 16px; }

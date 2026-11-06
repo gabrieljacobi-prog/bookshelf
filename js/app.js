@@ -982,6 +982,41 @@ async function saveAuthor(id, fields, msg) {
   }
 }
 
+// A text field with suggestions drawn by the app: [name, count] pairs, matching
+// anywhere in the name, accents ignored. A short list shows in full on focus;
+// a long one waits for a letter. Tap fills the field; typing a new name is fine.
+function suggest(input, what, options) {
+  if (!input) return;
+  const box = document.createElement('ul');
+  box.className = 'sugg';
+  box.hidden = true;
+  box.setAttribute('aria-label', `${what[0].toUpperCase() + what.slice(1)}s in the library`);
+  input.closest('.fr').appendChild(box);
+  input.setAttribute('autocomplete', 'off');
+  const draw = () => {
+    const all = options().sort((a, b) => a[0].localeCompare(b[0]));
+    const q = norm(input.value.trim());
+    const hits = all.filter(([n]) => !q || norm(n).includes(q));
+    const exact = all.some(([n]) => norm(n) === q);
+    if ((!q && all.length > 12) || (exact && hits.length === 1)) { box.hidden = true; return; }
+    box.innerHTML = hits.slice(0, 8).map(([n, c]) => `<li><button type="button" data-v="${esc(n)}"><span>${esc(n)}</span><span class="lbl">${c} ${c === 1 ? 'book' : 'books'}</span></button></li>`).join('')
+      + (q && !exact ? `<li class="new">New ${what} “${esc(input.value.trim())}”</li>` : '');
+    box.hidden = !box.innerHTML;
+  };
+  input.addEventListener('focus', draw);
+  input.addEventListener('input', draw);
+  input.addEventListener('blur', () => setTimeout(() => { box.hidden = true; }, 150));
+  box.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the field focused
+  box.addEventListener('click', (e) => {
+    const v = e.target.closest('[data-v]')?.dataset.v;
+    if (v == null) return;
+    input.value = v;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    box.hidden = true; // the input event redrew it
+    input.closest('.fr').nextElementSibling?.querySelector('input')?.focus();
+  });
+}
+
 // --- Collections: a publisher's line or a magazine, one per book (`collection`
 // + optional `collectionNo` on the book). Found by the slug of the name.
 function collectionsOnShelves() {
@@ -1793,8 +1828,6 @@ function renderEdit(id) {
   const fmt = b.format === 'ebook' ? 'ebook' : b.binding || 'paperback'; // most books are paperbacks
   const langKnown = !b.language || EDIT_LANGS.some(([k]) => k === b.language);
   const publishers = [...new Set([...S.books.values()].map((x) => x.publisher).filter(Boolean))].sort();
-  const seriesNames = [...S.series.values()].map((x) => x.name).sort();
-  const collNames = [...collectionsOnShelves().values()].map((c) => c.name).sort();
   const names = [...S.authors.values()].map((x) => x.name).sort();
   const field = (label, name, value, extra = '') => `
     <div class="fr"><label class="lbl" for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value ?? '')}" autocomplete="off" ${extra}></div>`;
@@ -1809,9 +1842,9 @@ function renderEdit(id) {
         ${field('Title', 'title', b.title, 'required')}
         ${field('Subtitle', 'subtitle', b.subtitle)}
         <div class="fr"><label class="lbl" for="f-category">Category</label><select id="f-category" name="category">${isNew ? opt('', 'Choose…', b.category || '') : ''}${CATS.map((c) => opt(c, c, b.category)).join('')}</select></div>
-        ${field('Series', 'seriesName', b.seriesName, 'list="dl-series"')}
+        ${field('Series', 'seriesName', b.seriesName, 'data-sugg="series"')}
         ${field('Volume', 'volume', b.volume, 'inputmode="decimal" style="max-width:120px"')}
-        ${field('Collection', 'collection', b.collection, 'list="dl-coll" placeholder="A publisher\'s line or a magazine"')}
+        ${field('Collection', 'collection', b.collection, 'data-sugg="collection" placeholder="A publisher\'s line or a magazine"')}
         ${field('No.', 'collectionNo', b.collectionNo, 'inputmode="decimal" style="max-width:120px"')}
         <div class="fr"><label class="lbl" for="f-firstYear">First published</label>
           <div class="fy"><input id="f-firstYear" name="firstYear" value="${esc(b.firstYear ?? '')}" autocomplete="off" inputmode="numeric" maxlength="4" style="max-width:120px">
@@ -1849,11 +1882,15 @@ function renderEdit(id) {
         <button type="submit" class="btn-ink tap ch8" style="padding:0 30px">${isNew ? 'Add to the library' : 'Save'}</button>
       </div>
       <datalist id="dl-pub">${publishers.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
-      <datalist id="dl-series">${seriesNames.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
-      <datalist id="dl-coll">${collNames.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
       <datalist id="dl-names">${names.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
     </form>`;
 
+  // Series and collection: our own list of what's already in the library, since
+  // Firefox on Android barely shows <datalist> suggestions.
+  const seriesCount = new Map();
+  for (const x of S.books.values()) if (x.seriesId && !x.archived) seriesCount.set(x.seriesId, (seriesCount.get(x.seriesId) || 0) + 1);
+  suggest($('[data-sugg="series"]', el), 'series', () => [...S.series.values()].filter((x) => seriesCount.has(x.id)).map((x) => [x.name, seriesCount.get(x.id)]));
+  suggest($('[data-sugg="collection"]', el), 'collection', () => [...collectionsOnShelves().values()].map((c) => [c.name, c.books.filter((x) => !x.archived).length]));
   el.querySelectorAll('[data-pi]').forEach((x) => x.addEventListener(x.tagName === 'SELECT' ? 'change' : 'input', () => {
     people[Number(x.dataset.pi)][x.dataset.pk] = x.value;
   }));
@@ -2653,66 +2690,6 @@ function tidyNationalities() {
   const list = [...S.authors.values()].filter((a) => !a.deleted && a.nationality && cleanNationality(a.nationality) !== a.nationality)
     .map((a) => ({ op: 'update', col: 'authors', id: a.id, data: { nationality: cleanNationality(a.nationality) } }));
   if (list.length) applyOps(list).catch(() => { tidyDone = false; });
-  tidyBooks6Nov();
-}
-
-// One-off (6 Nov), on a member's next open; each change only applies while
-// the old value is still there, so a later edit in the app wins. Remove once run.
-// - The lookup sources spell Penguin's main paperback imprint five ways.
-//   Penguin Classics, Modern Classics, Penguin Press and Penguin – Companhia
-//   das Letras are real imprints and stay.
-// - Chinaman and An Instance of the Fingerpost are Vintage (from Gabriel).
-// - Foraged & Grown has no illustrator; Otto Penzler came from a lookup.
-// - Lake of the Long Sun is The Solar Cycle 7, not 6.
-// - Publisher lines and magazines move from series to collection; The Deluxe
-//   Edition becomes the series The Sandman, with Overture in it unnumbered.
-const PENGUIN_6NOV = ['Penguin', 'Penguin UK', 'Penguin Books Ltd', 'Penguin Books, Limited'];
-const VINTAGE_6NOV = ['bs19803145', 'bs318345'];
-// Collections (6 Nov): publisher lines and magazines leave the series list.
-const TO_COLLECTION_6NOV = ['Penguin Little Black Classics', 'Penguin African Writers Series', 'Metal Hurlant', 'Ex.Mag'];
-const METAL_6NOV = { 'Old Dreams, Young Visions': '1', 'Space Stares Back': '2', 'The Monster Within': '3', 'Paradise Lost': '4' };
-const GREAT_IDEAS_6NOV = ['bs60197', 'bs65663']; // Urne Burial, Myth of Sisyphus
-const PENGUIN_MODERN_6NOV = ['bs147597', 'bs260202', 'bs68154']; // Dark Days, Star, Create Dangerously
-function tidyBooks6Nov() {
-  const up = new Map(); // book id → fields
-  const set = (b, f) => up.set(b.id, { ...(up.get(b.id) || {}), ...f });
-  const goneSeries = new Set();
-  let sandman = false;
-  for (const b of S.books.values()) {
-    if (PENGUIN_6NOV.includes(b.publisher)) set(b, { publisher: 'Penguin Books' });
-    else if (VINTAGE_6NOV.includes(b.id) && b.publisher === 'Penguin Random House') set(b, { publisher: 'Vintage' });
-    if (b.title === 'Lake of the Long Sun' && String(b.volume) === '6') set(b, { volume: '7' });
-    const people = b.people || [];
-    if (/^Foraged/.test(b.title || '') && people.some((p) => p.name === 'Otto Penzler')) {
-      set(b, { people: people.filter((p) => p.name !== 'Otto Penzler') });
-    }
-    if (b.collection) continue;
-    if (TO_COLLECTION_6NOV.includes(b.seriesName)) {
-      const no = b.seriesName === 'Metal Hurlant' ? (METAL_6NOV[b.subtitle] || null) : (b.volume != null ? String(b.volume) : null);
-      if (b.seriesId) goneSeries.add(b.seriesId);
-      set(b, { collection: b.seriesName, collectionNo: no, seriesId: null, seriesName: null, volume: null });
-    } else if (b.title === 'A Terrible Beauty Is Born') {
-      set(b, { collection: 'Penguin Little Black Classics', collectionNo: '98', ...(/little black/i.test(b.subtitle || '') ? { subtitle: null } : {}) });
-    } else if (PENGUIN_MODERN_6NOV.includes(b.id) || /^\(?penguin modern\)?$/i.test(b.subtitle || '')) {
-      set(b, { collection: 'Penguin Modern', collectionNo: null, ...(/penguin modern/i.test(b.subtitle || '') ? { subtitle: null } : {}) });
-    } else if (GREAT_IDEAS_6NOV.includes(b.id)) {
-      set(b, { collection: 'Great Ideas', collectionNo: null, ...(/^Great Ideas /.test(b.title) ? { title: b.title.slice(12) } : {}) });
-    }
-    if (/penguin classics deluxe edition/i.test(b.subtitle || '')) set(b, { subtitle: null });
-    if (b.seriesName === 'The Deluxe Edition' && /sandman/i.test(b.title || '')) {
-      if (b.seriesId) goneSeries.add(b.seriesId);
-      set(b, { seriesId: 'the-sandman', seriesName: 'The Sandman' });
-      sandman = true;
-    } else if (!b.seriesName && /^The Sandman: Overture/i.test(b.title || '')) {
-      set(b, { seriesId: 'the-sandman', seriesName: 'The Sandman', volume: null });
-      sandman = true;
-    }
-  }
-  const ops = [...up].map(([id, data]) => ({ op: 'update', col: 'books', id, data }));
-  if (sandman && !S.series.has('the-sandman')) ops.push({ op: 'set', col: 'series', id: 'the-sandman', data: { name: 'The Sandman' } });
-  goneSeries.delete('the-sandman');
-  for (const id of goneSeries) if (S.series.has(id)) ops.push({ op: 'delete', col: 'series', id });
-  if (ops.length) applyOps(ops).catch(() => { tidyDone = false; });
 }
 
 // A change from the other phone. Wait while something is being typed (a lend
