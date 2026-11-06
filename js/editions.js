@@ -1,33 +1,12 @@
 // Other editions of a book, found by title and author rather than ISBN.
 // Used by the fix panel when the cover or the edition is wrong.
-import { firebaseConfig } from './firebase-config.js?v=3';
-import { normLang, toIsbn13, lookupAll } from './lookup.js?v=13';
+import { normLang, toIsbn13, lookupAll, getJson as get, googleJson as google } from './lookup.js?v=14';
+import { fold } from './names.js?v=1';
 
-async function getJson(url, ms = 12000) {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), ms);
-  try {
-    const r = await fetch(url, { signal: ctl.signal });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return await r.json();
-  } finally { clearTimeout(t); }
-}
-
+const getJson = (url) => get(url, 12000);
+const googleJson = (url) => google(url, 12000);
 const enc = encodeURIComponent;
-
-// Google answers bursts and an empty daily quota with 429/503: wait and retry,
-// then try once without the key (a separate, shared allowance).
-async function googleJson(url) {
-  for (let i = 0; i < 3; i++) {
-    try { return await getJson(`${url}&key=${firebaseConfig.apiKey}`); }
-    catch (e) {
-      if (!/HTTP (429|503)/.test(e.message)) throw e;
-      if (i < 2) await new Promise((r) => setTimeout(r, 1200 * 2 ** i));
-    }
-  }
-  try { return await getJson(url); }
-  catch (e) { throw new Error(/HTTP 429/.test(e.message) ? 'busy or out of its daily allowance, try again later' : e.message); }
-}
+const norm = (s) => fold(s).toLowerCase();
 const year = (s) => String(s || '').match(/\d{4}/)?.[0] || null;
 
 async function openLibrary(title, author, { publisher, year: wantYear } = {}) {
@@ -88,7 +67,6 @@ async function googleBooks(title, author, { publisher } = {}) {
   });
 }
 
-const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 // One exact edition from the ISBN printed in the book.
 async function byIsbn(isbn) {

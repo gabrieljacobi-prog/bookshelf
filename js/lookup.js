@@ -55,7 +55,7 @@ export function isbnRegion(isbn) {
 
 // --- Sources ------------------------------------------------------------------
 
-async function getJson(url, ms = 9000) {
+export async function getJson(url, ms = 9000) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms);
   try {
@@ -75,15 +75,22 @@ async function getJson(url, ms = 9000) {
   }
 }
 
-// Google answers bursts with 503/429. Wait and try again a few times.
-async function withBackoff(fn, tries = 4) {
-  for (let i = 0; ; i++) {
-    try { return await fn(); }
+// Google answers bursts and an empty daily quota with 429/503: wait and retry
+// with the project's key, then try once without it (a separate, shared
+// allowance; also the way round a key that isn't allowed to call Books).
+export async function googleJson(url, ms) {
+  let err;
+  for (let i = 0; i < 3; i++) {
+    try { return await getJson(`${url}&key=${firebaseConfig.apiKey}`, ms); }
     catch (e) {
-      if (i >= tries - 1 || !/HTTP (503|429|500)/.test(e.message)) throw e;
-      await new Promise((r) => setTimeout(r, 800 * 2 ** i + Math.random() * 400));
+      err = e;
+      if (!/HTTP (429|500|503)/.test(e.message)) break;
+      if (i < 2) await new Promise((r) => setTimeout(r, 1000 * 2 ** i + Math.random() * 400));
     }
   }
+  if (!/HTTP (403|429|500|503)/.test(err.message)) throw err;
+  try { return await getJson(url, ms); }
+  catch (e) { throw new Error(/HTTP 429/.test(e.message) ? 'busy or out of its daily allowance, try again later' : e.message); }
 }
 
 function jsonp(url, ms = 9000) {
@@ -99,24 +106,16 @@ function jsonp(url, ms = 9000) {
   });
 }
 
-// Google Books rejects most anonymous browser requests, so we send the
-// project's API key (Books API must be enabled for it). If the key isn't
-// allowed to call Books yet, fall back to an anonymous request.
+// Google Books rejects most anonymous browser requests, so googleJson sends the
+// project's API key first.
 export async function googleBooks(isbn) {
   const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
-  let data;
-  try {
-    data = await withBackoff(() => getJson(`${base}&key=${firebaseConfig.apiKey}`));
-  } catch (e) {
-    if (!/HTTP 403/.test(e.message)) throw e;
-    try { data = await getJson(base); }
-    catch (e2) { throw new Error('with key: ' + e.message + ' | anonymous: ' + e2.message.slice(0, 20)); }
-  }
+  const data = await googleJson(base);
   let v = data.items?.[0]?.volumeInfo;
   if (!v) {
     // isbn: searches miss books that a plain query finds, so try that too.
     try {
-      const d2 = await withBackoff(() => getJson(`https://www.googleapis.com/books/v1/volumes?q=${isbn}&key=${firebaseConfig.apiKey}`));
+      const d2 = await googleJson(`https://www.googleapis.com/books/v1/volumes?q=${isbn}`);
       v = (d2.items || []).map((i) => i.volumeInfo).find((x) => (x.industryIdentifiers || []).some((id) => id.identifier.replace(/-/g, '') === isbn));
     } catch { /* keep null */ }
   }

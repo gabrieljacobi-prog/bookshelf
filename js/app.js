@@ -1,12 +1,12 @@
 // Bookshelf: library grid and book page, built from the "Bookshelf mockups" canvas.
-import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=10';
+import { onUser, signIn, signOutUser, watchCatalogue, watchPrivate, coverImage, savePrivate, updateBook, updateBooks, saveCover, saveEdits, newBookId, addBook, applyOps } from './data.js?v=11';
 import { slug, sortName, fixName, splitTitle } from './names.js?v=1';
 import { checkContext, checkBook, peopleGroups, publisherGroups, unusedAuthors, nearPerson, nearPublisher, key as nameKey } from './checks.js?v=3';
-import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=13';
+import { toIsbn13, lookupAll, firstPublished } from './lookup.js?v=14';
 import { startScanner, isbnFromPhoto, beep } from './scanner.js?v=3';
 import { coverFromUrl, coverFromImage } from './covers.js?v=4';
 import { cropImage } from './crop.js?v=5';
-import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=6';
+import { findEditions, imageSearchUrl, searchBooks } from './editions.js?v=7';
 import { lookupPerson, lookupMany, fieldsFrom, wikidataUrl } from './wikidata.js?v=3';
 import { cleanNationality, nationalities } from './nations.js?v=1';
 
@@ -2558,51 +2558,6 @@ function tidyNationalities() {
   const list = [...S.authors.values()].filter((a) => !a.deleted && a.nationality && cleanNationality(a.nationality) !== a.nationality)
     .map((a) => ({ op: 'update', col: 'authors', id: a.id, data: { nationality: cleanNationality(a.nationality) } }));
   if (list.length) applyOps(list).catch(() => { tidyDone = false; });
-  handFixes();
-}
-
-// One-off: gaps filled in by hand on 2 Nov from the people's own pages
-// (Wikipedia, publishers), and two nationalities typed without the slash.
-// A field is only written while it's still empty or still the old value, so a
-// later edit in the app always wins. Remove once both phones have opened.
-const HAND_FIXES_2NOV = [
-  ['marcial-gala', { nationality: 'Cuban', born: 1963 }],
-  ['t-geronimo-johnson', { nationality: 'American' }],
-  ['lisa-congdon', { nationality: 'American' }],
-  ['bo-mossberg', { nationality: 'Swedish' }],
-  ['suhyeon-lee', { nationality: 'South Korean', gender: 'woman' }],
-  ['tanya-kirk', { nationality: 'British' }],
-  ['john-maizels', { nationality: 'British' }],
-  ['wojciech-grajkowski', { nationality: 'Polish' }],
-  ['wendy-despain', { nationality: 'American', gender: 'woman' }],
-  ['jessica-dore', { nationality: 'American', gender: 'woman' }],
-  ['maria-norberg', { nationality: 'Swedish', gender: 'woman' }],
-  ['julia-ericsson', { nationality: 'Swedish', gender: 'woman' }],
-  ['sigrid-nikka', { nationality: 'Swedish', gender: 'woman' }],
-  ['emma-frey-skott', { nationality: 'Swedish', gender: 'woman' }],
-  ['anna-margarethe-thagaard', { nationality: 'Swedish', gender: 'woman', born: 1947 }],
-  ['mikael-nypelius', { nationality: 'Swedish', gender: 'man', born: 1986 }],
-  ['valle-westesson', { nationality: 'Swedish', gender: 'man', born: 1974 }],
-  ['shinichi-koga', { nationality: 'Japanese', gender: 'man', born: 1936, died: 2018 }],
-  ['gianluca-la-bruna', { nationality: 'Italian', gender: 'man', born: 1985 }],
-  ['tom-mcdonough', { nationality: 'American', gender: 'man' }],
-  ['josh-larsen', { gender: 'man' }],
-  ['ernie-bradford', { name: 'Ernle Bradford', sortName: 'Bradford, Ernle', nationality: 'British', gender: 'man', born: 1922, died: 1986 }],
-  ['gabriel-jacobi', { nationality: 'Brazilian / Dutch' }],
-  ['katrina-wetterstedt', { nationality: 'Scottish / Swedish' }],
-];
-const HAND_OLD_2NOV = { name: ['Ernie Bradford'], sortName: ['Bradford, Ernie'], nationality: ['Brazilian Dutch', 'Scottish Swedish'] };
-async function handFixes() {
-  for (const [id, want] of HAND_FIXES_2NOV) {
-    const a = S.authors.get(id);
-    if (!a || a.deleted) continue;
-    const fields = {};
-    for (const [k, v] of Object.entries(want)) {
-      if (a[k] == null || a[k] === '' || (HAND_OLD_2NOV[k] || []).includes(a[k])) fields[k] = v;
-    }
-    if (!Object.keys(fields).length) continue;
-    await saveAuthor(id, { ...fields, checked: true, lookedUp: true, source: 'hand' });
-  }
 }
 
 // A change from the other phone. Wait while something is being typed (a lend

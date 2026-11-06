@@ -173,36 +173,19 @@ function keepLarge(key) {
     p?.then((u) => { if (u?.startsWith('blob:')) URL.revokeObjectURL(u); }, () => {});
   }
 }
-const REFRESHED = 'coversRefreshed';
-let refreshed;
-function legacyDone(id) {
-  if (!refreshed) { try { refreshed = new Set(JSON.parse(localStorage.getItem(REFRESHED)) || []); } catch { refreshed = new Set(); } }
-  return refreshed.has(id);
-}
-function markLegacyDone(id) {
-  refreshed.add(id);
-  try { localStorage.setItem(REFRESHED, JSON.stringify([...refreshed])); } catch { /* private window */ }
-}
-
 export async function coverImage(bookId, size = 'thumb', book = null) {
   const id = size === 'large' ? bookId + '-l' : bookId;
   const v = book?.cover?.v ?? null;
-  const legacy = v == null && book?.verified && !legacyDone(id);
-  const key = id + '@' + (v ?? '') + (legacy ? '!' : '');
+  const key = id + '@' + (v ?? '');
   if (coverMem.has(key)) return coverMem.get(key);
   const p = (async () => {
     const ref = doc(db, 'covers', id);
     let snap = null;
-    if (!legacy) {
-      try {
-        const c = await getDocFromCache(ref);
-        if (c.exists() && (c.data().v ?? null) === v) snap = c;
-      } catch { /* not cached */ }
-    }
-    if (!snap) {
-      snap = await getDoc(ref);
-      if (legacy) markLegacyDone(id);
-    }
+    try {
+      const c = await getDocFromCache(ref);
+      if (c.exists() && (c.data().v ?? null) === v) snap = c;
+    } catch { /* not cached */ }
+    if (!snap) snap = await getDoc(ref);
     return blobUrl(snap.exists() ? snap.data().image : null);
   })();
   coverMem.set(key, p);
