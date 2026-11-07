@@ -1457,6 +1457,11 @@ const toFix = () => shelfBooks().filter((b) => b.needsFix || !b.cover);
 
 // Printed books without paperback / hardcover (e.g. after "Mark as printed").
 // Most books are paperbacks, so that's the starting pick.
+// Covers whose source image is too small to look sharp on the book page.
+// Fixed when a sharper cover is saved (new w/h); "It's fine" adds 'lowres' to oddOk.
+const LOWRES_H = 450;
+const isLowRes = (b) => !b.needsFix && b.cover?.h && Math.max(b.cover.w || 0, b.cover.h) < LOWRES_H && !(b.oddOk || []).includes('lowres');
+const lowRes = () => shelfBooks().filter(isLowRes);
 const noBinding = () => shelfBooks().filter((b) => b.format !== 'ebook' && !b.binding);
 const bindPick = new Map(); // id → choice on the To fix page, until saved
 
@@ -1531,6 +1536,16 @@ function renderFixList() {
       </div>
     </div>`;
   const unbound = noBinding().sort(compare('Author'));
+  const small = lowRes().sort(compare('Author'));
+  const smallRow = (b) => `
+    <div class="fix-row" data-small="${esc(b.id)}">
+      <a class="cv" href="#/book/${esc(b.id)}" aria-hidden="true" tabindex="-1">${coverBox(b, 44, 66)}</a>
+      <div style="flex:1;min-width:0">
+        <a class="tt" href="#/book/${esc(b.id)}" style="display:block;text-decoration:none">${esc(b.title)}</a><span class="sub" style="display:block">${sub(b)}</span>
+        <span class="sub" style="display:block">Cover ${b.cover.w || '?'} × ${b.cover.h} px</span>
+        <div class="odd-acts"><a class="tap" href="#/book/${esc(b.id)}">Find a sharper cover</a><button class="tap" data-fine="1">It’s fine</button></div>
+      </div>
+    </div>`;
   const pick = (b) => bindPick.get(b.id) || 'paperback';
   const bindRow = (b) => `
     <div class="fix-row" data-bind="${esc(b.id)}">
@@ -1541,7 +1556,7 @@ function renderFixList() {
           `<button class="tap" aria-pressed="${pick(b) === k}" data-b="${k}">${l}</button>`).join('')}</div>
       </div>
     </div>`;
-  const nothing = !all.length && !odd.length && !unbound.length;
+  const nothing = !all.length && !odd.length && !unbound.length && !small.length;
   el.innerHTML = `
     <div class="page-top"><a class="back tap" href="#/">${I.back}Library</a></div>
     <header class="page-head"><h1 class="disp">Errata</h1>
@@ -1556,6 +1571,9 @@ function renderFixList() {
     </div>` : ''}
     ${wrong.length ? `<div class="section-head" style="padding-top:${merges || lookN ? 40 : 12}px"><span class="name">Wrong edition</span><span class="of">${wrong.length}</span></div><div class="fix-list">${wrong.map(row).join('')}</div>` : ''}
     ${noCover.length ? `<div class="section-head"><span class="name">No cover</span><span class="of">${noCover.length}</span></div><div class="fix-list">${noCover.map(row).join('')}</div>` : ''}
+    ${small.length ? `<div class="section-head"><span class="name">Low-resolution cover</span><span class="of">${small.length}</span></div>
+      <p class="sec-hint">Covers under ${LOWRES_H} px tall look soft on the book page. Open a book to pick another cover or take a photo of yours.</p>
+      <div class="fix-list">${small.map(smallRow).join('')}</div>` : ''}
     ${odd.length ? `<div class="section-head"><span class="name">Looks odd</span><span class="of">${odd.length}</span></div>
       <p class="sec-hint">Things in the details that look like mistakes from the old app or a book source. Fix them here, in Edit, or tap It’s fine.</p>
       <div class="fix-list">${odd.map(oddRow).join('')}</div>` : ''}
@@ -1575,6 +1593,10 @@ function renderFixList() {
     try { await updateBooks(ups); toast(`Saved ${ups.length} books.`); }
     catch (err) { for (const [id, b] of before) S.books.set(id, b); renderFixList(); toast('Couldn\'t save: ' + err.message); }
   });
+  el.querySelectorAll('[data-small]').forEach((r) => r.querySelector('[data-fine]').addEventListener('click', () => {
+    const b = S.books.get(r.dataset.small);
+    fixOdd(b.id, { oddOk: [...new Set([...(b.oddOk || []), 'lowres'])] }, 'Left as it is.');
+  }));
   el.querySelectorAll('[data-odd]').forEach((r) => {
     const id = r.dataset.odd;
     const entry = () => looksOdd().find((x) => x.b.id === id);
@@ -1747,7 +1769,7 @@ const fixState = new Map(); // bookId → { open, loading, results, errors, pick
 function fixPanelHtml(b) {
   if (!isMember()) return '';
   const st = fixState.get(b.id) || {};
-  const needs = b.needsFix || !b.cover;
+  const needs = b.needsFix || !b.cover || isLowRes(b);
   if (!needs && b.verified && !st.open) return '';
   if (!needs && !st.open) {
     return `<div class="fixp ch12"><div class="ch12i q">
@@ -1758,7 +1780,7 @@ function fixPanelHtml(b) {
   }
   const eds = st.results || [];
   return `<div class="fixp ch12"><div class="ch12i">
-    <h3>${!b.cover && !b.needsFix ? 'Find a cover' : 'Find the right edition'}</h3>
+    <h3>${!b.cover && !b.needsFix ? 'Find a cover' : isLowRes(b) ? 'Find a sharper cover' : 'Find the right edition'}</h3>
     <p class="hint">Search other editions, look on Google Images (save the picture, then use Photo), or photograph your copy and drag the corners onto the cover's. For books with many editions, add what's printed in your copy.</p>
     <div class="refine">
       <div class="fr"><label class="lbl" for="fx-pub">Publisher</label><input id="fx-pub" value="${esc(st.pub || '')}" placeholder="e.g. Penguin" autocomplete="off"></div>
@@ -1781,7 +1803,7 @@ function fixPanelHtml(b) {
       <button class="btn-line ch8" data-fx="coveronly" style="height:44px"${st.busy ? ' disabled' : ''}><span class="ch8i tap">Cover only</span></button>
     </div>
     <p class="hint" style="margin:8px 0 0">"Use this edition" also takes its ISBN, publisher and year.</p>` : ''}
-    ${b.needsFix ? `<button class="ok tap" data-fx="right">It's right after all</button>` : ''}
+    ${b.needsFix ? `<button class="ok tap" data-fx="right">It's right after all</button>` : isLowRes(b) ? `<button class="ok tap" data-fx="sharp">It’s fine as it is</button>` : ''}
   </div></div>`;
 }
 
@@ -1831,6 +1853,10 @@ function wireFixPanel(el, id) {
         updateBook(id, { needsFix: true }).catch((e) => toast('Couldn\'t save: ' + e.message));
       } else if (act === 'right') {
         try { await updateBook(id, { verified: true, needsFix: false }); finishFix(id, {}, 'Marked as checked.'); }
+        catch (e) { toast('Couldn\'t save: ' + e.message); }
+      } else if (act === 'sharp') {
+        const oddOk = [...new Set([...(b.oddOk || []), 'lowres'])];
+        try { await updateBook(id, { oddOk }); b.oddOk = oddOk; fixState.delete(id); renderBook(id); toast('Left as it is.'); }
         catch (e) { toast('Couldn\'t save: ' + e.message); }
       } else if (act === 'search') {
         const pub = $('#fx-pub').value.trim(), yr = $('#fx-year').value.trim(), isbn = $('#fx-isbn').value.trim();
